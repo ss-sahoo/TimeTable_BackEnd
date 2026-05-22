@@ -1057,3 +1057,117 @@ class PreAnalysisJob(models.Model):
                 'instructions_preview': instructions[:200] + '...' if len(instructions) > 200 else instructions
             }
         return previews
+
+
+class AnswerExtractionJob(models.Model):
+    """Track answer-key extraction jobs that update correct_answer on existing exam questions."""
+
+    STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('completed', 'Completed'),
+        ('failed', 'Failed'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    exam = models.ForeignKey(
+        Exam,
+        on_delete=models.CASCADE,
+        related_name='answer_extraction_jobs',
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='answer_extraction_jobs',
+        db_constraint=False,
+    )
+
+    file_name = models.CharField(max_length=255)
+    file_type = models.CharField(max_length=100)
+    file_size = models.IntegerField()
+    file_path = models.CharField(max_length=500)
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+        db_index=True,
+    )
+    progress_percent = models.IntegerField(
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    error_message = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['exam', 'status'])]
+
+    def __str__(self):
+        return f"AnswerExtractionJob {self.id} - {self.file_name} ({self.status})"
+
+    def mark_completed(self):
+        """Mark the job as completed."""
+        self.status = 'completed'
+        self.progress_percent = 100
+        self.completed_at = timezone.now()
+        self.save(update_fields=['status', 'progress_percent', 'completed_at'])
+
+    def mark_failed(self, error_message):
+        """Mark the job as failed with the given message."""
+        self.status = 'failed'
+        self.error_message = error_message
+        self.completed_at = timezone.now()
+        self.save(update_fields=['status', 'error_message', 'completed_at'])
+
+
+class ExtractedAnswer(models.Model):
+    """One (question_number, answer) row staged from an answer-key PDF for review."""
+
+    MATCH_STATUS_CHOICES = [
+        ('matched', 'Matched'),
+        ('unmatched', 'Unmatched'),
+    ]
+
+    job = models.ForeignKey(
+        AnswerExtractionJob,
+        on_delete=models.CASCADE,
+        related_name='extracted_answers',
+    )
+    question_number = models.IntegerField()
+    extracted_answer = models.TextField()
+
+    matched_question = models.ForeignKey(
+        Question,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='extracted_answer_rows',
+        db_constraint=False,
+    )
+    current_answer = models.TextField(
+        blank=True,
+        help_text='Snapshot of Question.correct_answer when the row was matched, for diff display.',
+    )
+    match_status = models.CharField(
+        max_length=20,
+        choices=MATCH_STATUS_CHOICES,
+        db_index=True,
+    )
+
+    skip = models.BooleanField(default=False)
+    is_applied = models.BooleanField(default=False, db_index=True)
+    apply_error = models.TextField(blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['question_number']
+        unique_together = [('job', 'question_number')]
+
+    def __str__(self):
+        return f"Q{self.question_number} -> {self.extracted_answer[:30]} ({self.match_status})"
