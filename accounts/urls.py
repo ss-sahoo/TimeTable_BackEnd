@@ -46,6 +46,7 @@ urlpatterns = [
     # User listing
     path('users/', views.UserListView.as_view(), name='user-list'),
     path('users/<int:pk>/', views.UserDetailView.as_view(), name='user-detail'),
+    path('users/<int:pk>/reset-password/', views.admin_reset_password, name='admin-reset-password'),
     path('people/', list_people, name='all-people'),  # Generic unified view
     
     # Permissions

@@ -76,7 +76,7 @@ class ExamSerializer(serializers.ModelSerializer):
             'questions_added', 'questions_required', 'questions_remaining',
             'question_completion_percent', 'is_question_complete', 'share_url',
             'exam_mode', 'omr_config', 'omr_metadata', 'omr_sheet_generated', 'omr_sheet_file',
-            'ai_evaluation_enabled', 'marking_strictness', 'show_result_after_exam_end'
+            'ai_evaluation_enabled', 'marking_strictness', 'show_result_after_exam_end', 'is_flexible'
         ]
         read_only_fields = [
             'id', 'created_by', 'created_at', 'updated_at',
@@ -248,7 +248,7 @@ class ExamCreateSerializer(serializers.ModelSerializer):
             'public_access_token', 'public_token_expires_at', 'public_allowed_ip_ranges',
             'public_allow_multiple_devices', 'public_link_created_at', 'public_link_last_used_at',
             'public_link_usage_count', 'share_url', 'exam_mode', 'ai_evaluation_enabled', 'marking_strictness',
-            'show_result_after_exam_end'
+            'show_result_after_exam_end', 'is_flexible'
         ]
         read_only_fields = [
             'id', 'public_access_token', 'public_token_expires_at', 'public_allowed_ip_ranges',
