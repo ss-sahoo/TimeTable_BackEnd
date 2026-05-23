@@ -756,3 +756,63 @@ class ActivityLogListView(generics.ListAPIView):
             )
             
         return queryset
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def admin_reset_password(request, pk):
+    """
+    Reset a user's password (for admins).
+    """
+    actor = request.user
+    
+    # Check permissions
+    if not actor.is_institute_admin() and actor.role not in ['super_admin', 'SUPER_ADMIN']:
+        return Response({
+            'error': 'You do not have permission to reset passwords.'
+        }, status=status.HTTP_403_FORBIDDEN)
+    
+    try:
+        user = User.objects.get(pk=pk)
+    except User.DoesNotExist:
+        return Response({
+            'error': 'User not found.'
+        }, status=status.HTTP_404_NOT_FOUND)
+    
+    # Check if advisor (admin) is in the same institute
+    if actor.role not in ['super_admin', 'SUPER_ADMIN'] and user.institute != actor.institute:
+        return Response({
+            'error': 'You can only reset passwords for users in your institute.'
+        }, status=status.HTTP_403_FORBIDDEN)
+
+    password = request.data.get('password')
+    confirm_password = request.data.get('confirm_password')
+
+    if not password or not confirm_password:
+        return Response({
+            'error': 'Both password and confirm_password are required.'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    if password != confirm_password:
+        return Response({
+            'error': 'Passwords do not match.'
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    user.set_password(password)
+    user.save()
+
+    # Log activity
+    from .utils import log_activity
+    log_activity(
+        institute=user.institute,
+        log_type='user',
+        title='User Password Reset',
+        description=f'Password for {user.get_full_name()} ({user.email}) was reset by {actor.get_full_name()}.',
+        user=user,
+        status='success',
+        request=request
+    ) if user.institute else None
+
+    return Response({
+        'message': 'Password reset successfully.'
+    }, status=status.HTTP_200_OK)

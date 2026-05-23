@@ -105,8 +105,12 @@ class ExamPatternListView(generics.ListCreateAPIView):
 
 class ExamPatternDetailView(generics.RetrieveUpdateDestroyAPIView):
     """Get, update, and delete exam patterns"""
-    serializer_class = ExamPatternSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.request.method in ['PUT', 'PATCH']:
+            return ExamPatternCreateSerializer
+        return ExamPatternSerializer
 
     def get_queryset(self):
         user = self.request.user

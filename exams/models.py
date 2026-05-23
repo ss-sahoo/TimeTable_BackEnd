@@ -27,6 +27,7 @@ class Exam(models.Model):
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
     duration_minutes = models.IntegerField(validators=[MinValueValidator(1)])
+    is_flexible = models.BooleanField(default=False, help_text="If enabled, students can start the exam anytime between start_date and end_date")
     
     # Advanced Scheduling
     timezone = models.CharField(max_length=50, default='UTC')

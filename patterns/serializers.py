@@ -127,13 +127,14 @@ class ExamPatternSerializer(serializers.ModelSerializer):
 
 class PatternSectionCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating sections with marking_scheme support"""
+    id = serializers.IntegerField(required=False)  # Allow ID for updates
     marking_scheme = serializers.DictField(required=False, write_only=True)
     question_type = serializers.CharField()  # Override to bypass choice validation before custom mapping
     
     class Meta:
         model = PatternSection
         fields = [
-            'name', 'subject', 'question_type', 'start_question', 'end_question',
+            'id', 'name', 'subject', 'question_type', 'start_question', 'end_question',
             'min_questions_to_attempt', 'is_compulsory', 'order', 'marking_scheme',
             'marks_per_question', 'negative_marking', 'question_configurations'
         ]
@@ -208,9 +209,46 @@ class ExamPatternCreateSerializer(serializers.ModelSerializer):
         pattern = ExamPattern.objects.create(**validated_data)
         
         for section_data in sections_data:
+            # Remove id if present in creation
+            section_data.pop('id', None)
             PatternSection.objects.create(pattern=pattern, **section_data)
         
         return pattern
+
+    def update(self, instance, validated_data):
+        sections_data = validated_data.pop('sections', None)
+        
+        # Update pattern fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        if sections_data is not None:
+            # Get existing sections
+            existing_sections = {section.id: section for section in instance.sections.all()}
+            updated_section_ids = []
+            
+            for section_data in sections_data:
+                section_id = section_data.get('id')
+                if section_id and section_id in existing_sections:
+                    # Update existing section
+                    section_instance = existing_sections[section_id]
+                    for attr, value in section_data.items():
+                        if attr != 'id':
+                            setattr(section_instance, attr, value)
+                    section_instance.save()
+                    updated_section_ids.append(section_id)
+                else:
+                    # Create new section
+                    # Remove id if it's a new section (might be 0 or null from frontend)
+                    section_data.pop('id', None)
+                    new_section = PatternSection.objects.create(pattern=instance, **section_data)
+                    updated_section_ids.append(new_section.id)
+            
+            # Delete sections that were not included in the update
+            instance.sections.exclude(id__in=updated_section_ids).delete()
+            
+        return instance
 
 
 class PatternTemplateSerializer(serializers.ModelSerializer):
