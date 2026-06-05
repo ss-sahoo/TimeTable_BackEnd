@@ -1,7 +1,11 @@
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from exam_flow_backend.throttling import (
+    PasswordResetAnonRateThrottle,
+    PasswordResetUserRateThrottle,
+)
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
@@ -18,9 +22,22 @@ logger = logging.getLogger(__name__)
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([PasswordResetAnonRateThrottle, PasswordResetUserRateThrottle])
 def forgot_password(request):
     """
-    Send password reset email to user
+    Request a password reset email.
+
+    Request body:
+        {"email": "user@example.com"}
+
+    Responses:
+        200: {"message": "..."} — always returned for valid input, even if the
+             email is not registered (does not reveal account existence).
+        400: {"error": "Email is required"}
+        500: {"error": "Failed to send password reset email..."} — mail backend
+             failure.
+
+    Rate limited per `password_reset` scope.
     """
     email = request.data.get('email')
     
@@ -77,9 +94,24 @@ def forgot_password(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([PasswordResetAnonRateThrottle, PasswordResetUserRateThrottle])
 def reset_password(request):
     """
-    Reset password using token
+    Confirm password reset with the token from the email.
+
+    Request body:
+        {
+            "uid": "<base64-encoded user id from the link>",
+            "token": "<token from the link>",
+            "new_password": "...",
+            "confirm_password": "..."
+        }
+
+    Responses:
+        200: {"message": "Password has been reset successfully..."}
+        400: {"error": "..."} — missing fields, mismatched passwords,
+             invalid/expired link, or failing Django password validators
+             (in which case `error` is a list of validator messages).
     """
     uid = request.data.get('uid')
     token = request.data.get('token')
@@ -132,9 +164,18 @@ def reset_password(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([PasswordResetAnonRateThrottle, PasswordResetUserRateThrottle])
 def validate_reset_token(request):
     """
-    Validate password reset token without resetting password
+    Check whether a password reset link is still valid (used by the frontend
+    to gate the reset form before the user submits a new password).
+
+    Request body:
+        {"uid": "...", "token": "..."}
+
+    Responses:
+        200: {"valid": true, "user_email": "..."}
+        400: {"valid": false, "error": "Invalid or expired reset link"}
     """
     uid = request.data.get('uid')
     token = request.data.get('token')

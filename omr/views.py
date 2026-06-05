@@ -51,10 +51,14 @@ class OMRSheetViewSet(viewsets.ModelViewSet):
     def generate_for_exam(self, request, exam_id=None):
         """
         Generate OMR sheet for an exam.
-        
+
         POST /api/omr/sheets/generate/{exam_id}/
         """
-        exam = get_object_or_404(Exam, id=exam_id)
+        # Tenant scope: only allow operating on exams in the caller's institute.
+        # Super admins retain global access; everyone else is restricted.
+        exam_qs = Exam.objects.all() if request.user.role == 'super_admin' \
+            else Exam.objects.filter(institute=request.user.institute)
+        exam = get_object_or_404(exam_qs, id=exam_id)
         
         # Validate exam mode
         effective_mode = exam.exam_mode
@@ -178,10 +182,14 @@ class OMRSubmissionViewSet(viewsets.ModelViewSet):
     def upload_for_exam(self, request, exam_id=None):
         """
         Upload scanned OMR sheets for evaluation.
-        
+
         POST /api/omr/submissions/upload/{exam_id}/
         """
-        exam = get_object_or_404(Exam, id=exam_id)
+        # Tenant scope: prevent uploading OMR submissions against another
+        # institute's exam by guessing the exam id.
+        exam_qs = Exam.objects.all() if request.user.role == 'super_admin' \
+            else Exam.objects.filter(institute=request.user.institute)
+        exam = get_object_or_404(exam_qs, id=exam_id)
         
         # Validate exam mode
         if exam.exam_mode != 'offline_omr':
@@ -349,11 +357,13 @@ class AnswerKeyViewSet(viewsets.ModelViewSet):
     def by_exam(self, request, exam_id=None):
         """
         Get or create answer key for an exam.
-        
+
         GET /api/omr/answer-keys/exam/{exam_id}/ - Get answer key
         POST /api/omr/answer-keys/exam/{exam_id}/ - Create/update answer key
         """
-        exam = get_object_or_404(Exam, id=exam_id)
+        exam_qs = Exam.objects.all() if request.user.role == 'super_admin' \
+            else Exam.objects.filter(institute=request.user.institute)
+        exam = get_object_or_404(exam_qs, id=exam_id)
         
         if request.method == 'GET':
             try:
@@ -400,8 +410,10 @@ class AnswerKeyViewSet(viewsets.ModelViewSet):
         - marks: Positive marks for correct answer
         - negative: Negative marks for wrong answer (0 for no negative marking)
         """
-        exam = get_object_or_404(Exam, id=exam_id)
-        
+        exam_qs = Exam.objects.all() if request.user.role == 'super_admin' \
+            else Exam.objects.filter(institute=request.user.institute)
+        exam = get_object_or_404(exam_qs, id=exam_id)
+
         # The request body is the answer key directly
         answers = request.data
         

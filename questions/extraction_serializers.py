@@ -135,23 +135,34 @@ class ExtractedQuestionSerializer(serializers.ModelSerializer):
 
 class ExtractionJobCreateSerializer(serializers.Serializer):
     """Serializer for creating extraction job"""
-    
+
     file = serializers.FileField(required=True)
     exam_id = serializers.IntegerField(required=True)
     pattern_id = serializers.IntegerField(required=True)
     subject = serializers.CharField(required=False, allow_blank=True)
-    
+
+    # Magic-byte signatures for accepted binary formats. The declared
+    # content_type header is client-supplied and easy to spoof, so for
+    # binary types we also peek at the first bytes and reject mismatches.
+    _MAGIC_BYTES = {
+        'application/pdf': (b'%PDF-',),
+        'image/jpeg': (b'\xff\xd8\xff',),
+        'image/png': (b'\x89PNG\r\n\x1a\n',),
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document': (b'PK\x03\x04',),
+        'application/msword': (b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1', b'PK\x03\x04'),
+    }
+
     def validate_file(self, value):
         """Validate uploaded file"""
         from django.conf import settings
-        
+
         # Check file size
         if value.size > settings.MAX_UPLOAD_SIZE:
             raise serializers.ValidationError(
                 f'File size exceeds maximum allowed size of '
                 f'{settings.MAX_UPLOAD_SIZE / 1024 / 1024:.0f} MB'
             )
-        
+
         # Check file type
         content_type = value.content_type
         if content_type not in settings.ALLOWED_EXTRACTION_FILE_TYPES:
@@ -159,7 +170,23 @@ class ExtractionJobCreateSerializer(serializers.Serializer):
                 f'File type {content_type} is not supported. '
                 f'Allowed types: {", ".join(settings.EXTRACTION_FILE_EXTENSIONS)}'
             )
-        
+
+        # Magic-byte check for binary formats. text/plain is skipped because
+        # plain text has no signature.
+        expected_signatures = self._MAGIC_BYTES.get(content_type)
+        if expected_signatures:
+            try:
+                value.seek(0)
+                head = value.read(16)
+                value.seek(0)
+            except Exception:
+                head = b''
+            if not any(head.startswith(sig) for sig in expected_signatures):
+                raise serializers.ValidationError(
+                    'File contents do not match the declared type. '
+                    'Re-upload the original file.'
+                )
+
         return value
     
     def validate_exam_id(self, value):

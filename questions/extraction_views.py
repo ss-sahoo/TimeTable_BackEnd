@@ -16,6 +16,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
+from exam_flow_backend.throttling import BulkExtractUserRateThrottle
 
 from questions.models import ExtractionJob, ExtractedQuestion
 from questions.extraction_serializers import (
@@ -64,17 +65,29 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
         
         return queryset.order_by('-created_at')
     
-    @action(detail=False, methods=['post'], url_path='upload')
+    @action(detail=False, methods=['post'], url_path='upload', throttle_classes=[BulkExtractUserRateThrottle])
     def upload_file(self, request):
         """
-        Upload file and create extraction job
-        
+        Upload a question paper and create an extraction job (V1/V3 router).
+
         POST /api/questions/extraction-jobs/upload/
-        
-        ENHANCED: Now supports optional pre-analysis for better subject separation.
+
+        Multipart form fields (see ExtractionJobCreateSerializer):
+            file, exam_id, pattern_id, subject (optional)
+
         Query params:
-        - use_pre_analysis: 'true' (default) to run pre-analysis first for better extraction
-        - use_v3: 'true' (default) to use V3 pipeline
+            use_pre_analysis: 'true' (default) — run pre-analysis first
+                              for better per-subject separation.
+            use_v3:           'true' (default) — use the V3 Celery pipeline.
+                              Set to 'false' to fall back to V1 for legacy
+                              compatibility.
+
+        Responses:
+            201/200: {"job_id": "...", "status": "queued", ...}
+            400: serializer validation failure (size, type, magic-byte mismatch).
+            403: exam not in caller's institute.
+
+        Rate limited per `bulk_extract` scope.
         """
         serializer = ExtractionJobCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -235,11 +248,27 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
             )
     
     
-    @action(detail=False, methods=['POST'], parser_classes=[MultiPartParser, FormParser], url_path='upload-v3')
+    @action(detail=False, methods=['POST'], parser_classes=[MultiPartParser, FormParser], url_path='upload-v3', throttle_classes=[BulkExtractUserRateThrottle])
     def upload_v3(self, request):
         """
-        Dedicated endpoint for V3 extraction pipeline.
-        Designed for the new modern UI.
+        Upload a question paper and kick off the V3 extraction pipeline
+        (Mathpix OCR + Gemini per-subject via AgentExtractionService).
+
+        Multipart form fields:
+            file (required)            — PDF/DOCX/image
+            exam_id / exam (required)  — target exam (must belong to caller's institute)
+            pattern_id / pattern (req) — exam pattern
+            pre_analysis_job_id (opt)  — link a confirmed PreAnalysisJob
+
+        Responses:
+            201/200: {"job_id": "...", "status": "queued", ...}
+            400: missing fields / unsupported file type / magic-byte mismatch
+            403: exam not in caller's institute
+
+        Long-running: actual extraction runs in a Celery task with a 30-minute
+        time limit. Poll job status via the retrieve endpoint.
+
+        Rate limited per `bulk_extract` scope.
         """
         import os
         import uuid

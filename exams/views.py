@@ -1,6 +1,7 @@
 from rest_framework import generics, permissions, status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.response import Response
+from exam_flow_backend.throttling import PublicAccessAnonRateThrottle
 from django.db import transaction, IntegrityError
 from django.utils import timezone
 from django.db.models import Q, Count, Avg, Sum, Value
@@ -588,7 +589,25 @@ class ExamAttemptDetailView(generics.RetrieveUpdateAPIView):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def start_exam(request):
-    """Start an exam attempt"""
+    """
+    Begin (or resume) an exam attempt for the authenticated student.
+
+    Request body: see `ExamStartSerializer` ({"exam_id": "..."}).
+
+    Responses:
+        201: {"attempt": <ExamAttemptSerializer>, "message": "Exam started successfully"}
+        200: {"attempt": ..., "message": "You have an ongoing attempt"} — when
+             an in-progress attempt already exists (returned instead of creating
+             a new one).
+        400: exam not active, or max attempts reached.
+        403: student lacks visibility-scope access or is not in
+             `allowed_users`.
+        404: exam does not exist.
+
+    Side effects:
+        Creates a new `ExamAttempt` row (transactional) capturing IP and
+        user-agent. Attempt number is incremented from existing attempts.
+    """
     serializer = ExamStartSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     
@@ -650,7 +669,24 @@ def start_exam(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def submit_exam(request):
-    """Submit exam answers with comprehensive evaluation system"""
+    """
+    Submit answers for an in-progress exam attempt and trigger evaluation.
+
+    Request body: see `ExamSubmitSerializer`
+        ({"attempt_id": "...", "answers": [...]}).
+
+    Responses:
+        200: submission accepted; payload includes attempt summary, score,
+             section breakdown, and (for auto-evaluable types) per-question
+             correctness.
+        400: validation error (already submitted, invalid attempt state).
+        404: attempt does not exist or does not belong to the caller.
+
+    Evaluation pipeline:
+        - MCQ / numerical: auto-evaluated synchronously (shuffle-aware).
+        - Subjective: queued for AI evaluation if rubrics exist, otherwise
+          marked for manual grading.
+    """
     serializer = ExamSubmitSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
     
@@ -3110,8 +3146,23 @@ def admin_dashboard_data(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.AllowAny])
+@throttle_classes([PublicAccessAnonRateThrottle])
 def public_exam_details(request, token):
-    """Fetch public exam details using the secure token."""
+    """
+    Fetch public exam metadata using the per-exam public access token.
+    Unauthenticated; protected only by the unguessable UUID token.
+
+    Path:
+        GET /api/exams/public/<token>/details/
+
+    Responses:
+        200: exam summary (id, token, title, dates, duration, totals,
+             institute_name, pattern summary, public access flags).
+        403: exam not public, or token expired, or outside start/end window.
+        404: invalid token format or no matching exam.
+
+    Rate limited per `public_access` scope.
+    """
     try:
         token_uuid = uuid.UUID(str(token))
     except ValueError:
@@ -3163,8 +3214,27 @@ def public_exam_details(request, token):
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
+@throttle_classes([PublicAccessAnonRateThrottle])
 def public_exam_access(request):
-    """Allow public access to exams with secure token validation and logging."""
+    """
+    Authenticate a public-link exam taker. Creates/looks up a guest user
+    record, validates IP/device restrictions, logs the attempt, and issues
+    short-lived credentials.
+
+    Request body:
+        {"token": "<uuid>", "first_name": "...", "last_name": "...",
+         "email": "...", "phone": "...", "student_id": "..."}
+
+    Responses:
+        200: tokens + user info on success.
+        400: missing token / required fields.
+        403: exam denied (token expired, outside window, IP not allowed,
+             device fingerprint already used).
+        404: token does not resolve to any exam.
+
+    All access decisions — allow and deny — are logged to
+    `PublicExamAccessLog`. Rate limited per `public_access` scope.
+    """
     token_value = request.data.get('token')
     first_name = request.data.get('first_name')
     last_name = request.data.get('last_name')
