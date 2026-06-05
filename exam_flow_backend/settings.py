@@ -31,6 +31,7 @@ THIRD_PARTY_APPS = [
     'rest_framework',
     'corsheaders',
     'django_filters',
+    'drf_spectacular',
 ]
 
 LOCAL_APPS = [
@@ -46,6 +47,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    'exam_flow_backend.middleware.RequestIDMiddleware',  # Tag every request with X-Request-Id
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -56,6 +58,7 @@ MIDDLEWARE = [
     'accounts.tenant_middleware.TenantMiddleware',  # Multi-tenancy support
     'django.contrib.messages.middleware.MessageMiddleware',
     'exam_flow_backend.middleware.PDFResponseMiddleware',  # Add PDF headers
+    'exam_flow_backend.middleware.APICacheControlMiddleware',  # no-store on /api/
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
@@ -229,6 +232,65 @@ REST_FRAMEWORK = {
         'rest_framework.filters.SearchFilter',
         'rest_framework.filters.OrderingFilter',
     ],
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    'EXCEPTION_HANDLER': 'exam_flow_backend.exception_handler.custom_exception_handler',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        # Generic baselines (intentionally generous; tighten per-route via ScopedRateThrottle below)
+        'anon': '120/minute',
+        'user': '1000/minute',
+        # Per-route scopes (apply via `throttle_scope = '<name>'` on views)
+        'login': '10/minute',
+        'password_reset': '5/minute',
+        'public_access': '60/minute',
+        'bulk_extract': '20/hour',
+    },
+}
+
+# drf-spectacular (OpenAPI 3) configuration. Schema is served at /api/schema/
+# and an interactive Swagger UI at /api/docs/. Schema generation is read-only;
+# it does not affect runtime responses.
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'ExamFlow API',
+    'DESCRIPTION': 'Multi-tenant exam management platform backend.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': r'/api/',
+}
+
+# ---------------------------------------------------------------------------
+# Logging — make sure request_id (set by RequestIDMiddleware) is available in
+# every log record so 5xx responses can be cross-referenced with server logs.
+# ---------------------------------------------------------------------------
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'default': {
+            'format': '%(asctime)s %(levelname)s [%(name)s] [rid=%(request_id)s] %(message)s',
+        },
+    },
+    'filters': {
+        'request_id': {
+            '()': 'exam_flow_backend.log_filters.RequestIDFilter',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'default',
+            'filters': ['request_id'],
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': os.getenv('LOG_LEVEL', 'INFO'),
+    },
 }
 
 # CORS settings
