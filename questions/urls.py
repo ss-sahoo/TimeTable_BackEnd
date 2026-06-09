@@ -1,8 +1,8 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
+from . import answer_extraction_views
 from . import extraction_views
-from . import extraction_v2_views
 # Temporarily disabled AI/RAG features for deployment
 # from . import rag_views
 
@@ -87,10 +87,13 @@ urlpatterns = [
     # Image to Text Extraction (Mathpix OCR)
     path('image-to-text/', extraction_views.extract_text_from_image, name='image-to-text'),
 
-    # Extraction V2 (Microservice)
-    path('extract-v2/', extraction_v2_views.start_extraction_v2, name='start-extraction-v2'),
-    path('extract-v2/<uuid:job_id>/status/', extraction_v2_views.check_extraction_status_v2, name='check-extraction-status-v2'),
-    
+    # Answer-key Extraction (upload an answer-key PDF and apply answers to existing questions)
+    path('answer-keys/', answer_extraction_views.upload_answer_key, name='answer-key-upload'),
+    path('answer-keys/<uuid:job_id>/status/', answer_extraction_views.get_answer_key_status, name='answer-key-status'),
+    path('answer-keys/<uuid:job_id>/preview/', answer_extraction_views.get_answer_key_preview, name='answer-key-preview'),
+    path('answer-keys/<uuid:job_id>/apply/', answer_extraction_views.apply_answer_key, name='answer-key-apply'),
+    path('extracted-answers/<int:pk>/', answer_extraction_views.update_extracted_answer, name='extracted-answer-update'),
+
     # Include extraction router URLs
     path('', include(extraction_router.urls)),
     

@@ -354,6 +354,69 @@ def cleanup_old_extraction_jobs():
         }
 
 
+@shared_task(
+    bind=True,
+    name='questions.extract_answers',
+    max_retries=3,
+    default_retry_delay=60,
+    time_limit=900,
+    soft_time_limit=840,
+)
+def extract_answers_task(self, job_id: str):
+    """Run OCR + Gemini on an answer-key file and stage the results for review.
+
+    Matches each extracted (question_number, answer) pair to a Question in the job's
+    exam by question_number. Unmatched rows are still saved so the reviewer can see them.
+    """
+    from questions.models import AnswerExtractionJob, ExtractedAnswer, Question
+    from questions.services.answer_key_extractor import extract_answer_key
+
+    job_uuid = UUID(job_id)
+    job = AnswerExtractionJob.objects.get(id=job_uuid)
+    job.status = 'processing'
+    job.progress_percent = 10
+    job.save(update_fields=['status', 'progress_percent'])
+
+    try:
+        entries = extract_answer_key(job.file_path, job.file_type)
+        job.progress_percent = 70
+        job.save(update_fields=['progress_percent'])
+
+        questions_by_number = {
+            q.question_number: q
+            for q in Question.objects.filter(exam=job.exam, is_active=True)
+            if q.question_number is not None
+        }
+
+        seen_numbers = set()
+        for entry in entries:
+            q_no = entry['question_number']
+            if q_no in seen_numbers:
+                # Answer keys occasionally repeat a row (e.g. continuation pages); keep the first.
+                continue
+            seen_numbers.add(q_no)
+
+            question = questions_by_number.get(q_no)
+            ExtractedAnswer.objects.update_or_create(
+                job=job,
+                question_number=q_no,
+                defaults={
+                    'extracted_answer': entry['answer'],
+                    'matched_question': question,
+                    'current_answer': question.correct_answer if question else '',
+                    'match_status': 'matched' if question else 'unmatched',
+                },
+            )
+
+        job.mark_completed()
+        return {'success': True, 'count': len(seen_numbers)}
+
+    except Exception as exc:
+        logger.error(f"Answer extraction failed for job {job_id}: {exc}", exc_info=True)
+        job.mark_failed(str(exc))
+        raise
+
+
 @shared_task(name='questions.update_extraction_metrics')
 def update_extraction_metrics():
     """

@@ -270,9 +270,10 @@ class EvaluationService:
         # Manual evaluation for subjective questions
         # Manual/AI evaluation for subjective questions
         if question_type == 'subjective':
-            if self.settings.enable_ai_evaluation:
-                return 'ai'  # Try AI first
-            elif self.settings.enable_manual_evaluation:
+            # Disable automatic AI evaluation during student submission to prevent timeouts/hangs
+            # if self.settings.enable_ai_evaluation:
+            #     return 'ai'  # Try AI first
+            if self.settings.enable_manual_evaluation:
                 return 'manual'
         
         # Default to manual if nothing else is configured

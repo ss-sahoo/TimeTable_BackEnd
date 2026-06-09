@@ -16,6 +16,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
+from exam_flow_backend.throttling import BulkExtractUserRateThrottle
 
 from questions.models import ExtractionJob, ExtractedQuestion
 from questions.extraction_serializers import (
@@ -64,17 +65,29 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
         
         return queryset.order_by('-created_at')
     
-    @action(detail=False, methods=['post'], url_path='upload')
+    @action(detail=False, methods=['post'], url_path='upload', throttle_classes=[BulkExtractUserRateThrottle])
     def upload_file(self, request):
         """
-        Upload file and create extraction job
-        
+        Upload a question paper and create an extraction job (V1/V3 router).
+
         POST /api/questions/extraction-jobs/upload/
-        
-        ENHANCED: Now supports optional pre-analysis for better subject separation.
+
+        Multipart form fields (see ExtractionJobCreateSerializer):
+            file, exam_id, pattern_id, subject (optional)
+
         Query params:
-        - use_pre_analysis: 'true' (default) to run pre-analysis first for better extraction
-        - use_v3: 'true' (default) to use V3 pipeline
+            use_pre_analysis: 'true' (default) — run pre-analysis first
+                              for better per-subject separation.
+            use_v3:           'true' (default) — use the V3 Celery pipeline.
+                              Set to 'false' to fall back to V1 for legacy
+                              compatibility.
+
+        Responses:
+            201/200: {"job_id": "...", "status": "queued", ...}
+            400: serializer validation failure (size, type, magic-byte mismatch).
+            403: exam not in caller's institute.
+
+        Rate limited per `bulk_extract` scope.
         """
         serializer = ExtractionJobCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -235,11 +248,27 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
             )
     
     
-    @action(detail=False, methods=['POST'], parser_classes=[MultiPartParser, FormParser], url_path='upload-v3')
+    @action(detail=False, methods=['POST'], parser_classes=[MultiPartParser, FormParser], url_path='upload-v3', throttle_classes=[BulkExtractUserRateThrottle])
     def upload_v3(self, request):
         """
-        Dedicated endpoint for V3 extraction pipeline.
-        Designed for the new modern UI.
+        Upload a question paper and kick off the V3 extraction pipeline
+        (Mathpix OCR + Gemini per-subject via AgentExtractionService).
+
+        Multipart form fields:
+            file (required)            — PDF/DOCX/image
+            exam_id / exam (required)  — target exam (must belong to caller's institute)
+            pattern_id / pattern (req) — exam pattern
+            pre_analysis_job_id (opt)  — link a confirmed PreAnalysisJob
+
+        Responses:
+            201/200: {"job_id": "...", "status": "queued", ...}
+            400: missing fields / unsupported file type / magic-byte mismatch
+            403: exam not in caller's institute
+
+        Long-running: actual extraction runs in a Celery task with a 30-minute
+        time limit. Poll job status via the retrieve endpoint.
+
+        Rate limited per `bulk_extract` scope.
         """
         import os
         import uuid
@@ -1515,74 +1544,6 @@ def get_import_preview(request, job_id):
 # ===========================
 
 
-def _build_subject_sections_for_pattern(subject: str, section_structure: Dict, fallback_count: int) -> List[Dict]:
-    """
-    Build pattern sections from detected section structure.
-    
-    Args:
-        subject: Subject name
-        section_structure: Detected section structure with sections list
-        fallback_count: Fallback question count if no structure detected
-    
-    Returns:
-        List of section dictionaries for pattern creation
-    """
-    sections = []
-    detected_sections = section_structure.get('sections', [])
-    
-    if detected_sections:
-        # Use detected sections
-        for i, section in enumerate(detected_sections):
-            section_name = section.get('name', f'{subject} Section {i+1}')
-            question_type = section.get('type_hint', 'single_mcq')
-            question_range = section.get('question_range', '1-10')
-            question_count = section.get('question_count', 10)
-            
-            # Parse question range
-            if '-' in question_range:
-                try:
-                    start_q, end_q = map(int, question_range.split('-'))
-                except ValueError:
-                    start_q, end_q = 1, question_count
-            else:
-                start_q = 1
-                end_q = question_count
-            
-            sections.append({
-                'name': section_name,
-                'question_type': question_type,
-                'start_question': start_q,
-                'end_question': end_q,
-                'marks_per_question': 1,
-                'negative_marking': 0.25 if question_type in ['single_mcq', 'multiple_mcq'] else 0,
-            })
-    else:
-        # Fallback: create a single section
-        sections.append({
-            'name': f'{subject} Section',
-            'question_type': 'single_mcq',  # Default type
-            'start_question': 1,
-            'end_question': max(1, fallback_count),
-            'marks_per_question': 1,
-            'negative_marking': 0.25,
-        })
-    
-    return sections
-
-
-def _normalize_qtype_for_models(question_type: str) -> str:
-    """Normalize question type for model storage"""
-    type_mapping = {
-        'single_mcq': 'single_mcq',
-        'multiple_mcq': 'multiple_mcq', 
-        'numerical': 'numerical',
-        'subjective': 'subjective',
-        'true_false': 'true_false',
-        'fill_blank': 'fill_blank',
-    }
-    return type_mapping.get(question_type, 'single_mcq')
-
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def extract_questions_by_section(request):
@@ -2459,311 +2420,6 @@ def full_extraction_flow(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
-
-
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def auto_create_exam_from_pdf(request):
-    """
-    Upload a PDF/document, detect structure, create pattern + draft exam,
-    extract questions (including options/answers/types), and import directly.
-
-    POST /api/questions/auto-create-exam-from-pdf/
-    form-data:
-      - file (required)
-      - exam_title (optional)
-      - pattern_name (optional)
-      - total_duration (optional, minutes)
-      - start_in_hours (optional, default 24)
-    """
-    try:
-        uploaded_file = request.FILES.get('file')
-        if not uploaded_file:
-            return Response({'error': 'No file uploaded'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Save upload
-        upload_dir = os.path.join(settings.MEDIA_ROOT, 'auto_exam_uploads')
-        os.makedirs(upload_dir, exist_ok=True)
-        file_path = os.path.join(upload_dir, f"{timezone.now().timestamp()}_{uploaded_file.name}")
-        with open(file_path, 'wb+') as destination:
-            for chunk in uploaded_file.chunks():
-                destination.write(chunk)
-
-        # Parse raw text from file (PDF/DOCX/TXT/Image)
-        from questions.services.file_parser import FileParserService
-        parser = FileParserService()
-        text_content = parser.parse_file(file_path, uploaded_file.content_type)
-        if not text_content or not text_content.strip():
-            return Response({'error': 'Could not extract text from uploaded file'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Pre-analyze document
-        pre_analyzer = DocumentPreAnalyzer()
-        pre_result = pre_analyzer.analyze_document(text_content, pattern_subjects=[])
-        if not pre_result.is_valid:
-            return Response(
-                {
-                    'error': pre_result.error_message or 'Invalid question document',
-                    'reason': pre_result.reason or ''
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        subjects = pre_result.matched_subjects or pre_result.detected_subjects
-        if not subjects:
-            return Response({'error': 'No subjects detected from uploaded document'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Detect sections per subject and build pattern section config
-        try:
-            section_detector = SubjectSectionDetector()
-        except Exception:
-            section_detector = None
-
-        sections_by_subject = {}
-        for subject in subjects:
-            subject_data = pre_result.subject_separated_content.get(subject, {})
-            if isinstance(subject_data, dict):
-                subject_content = subject_data.get('content', '')
-                subject_instructions = subject_data.get('instructions', '')
-            else:
-                subject_content = str(subject_data or '')
-                subject_instructions = ''
-
-            expected = int((pre_result.subject_question_counts or {}).get(subject, 0) or 0)
-
-            if section_detector:
-                try:
-                    detected_structure = section_detector.detect_sections_for_subject(
-                        subject=subject,
-                        subject_content=subject_content,
-                        subject_instructions=subject_instructions,
-                        expected_question_count=expected,
-                    )
-                except Exception:
-                    detected_structure = {'sections': []}
-            else:
-                detected_structure = {'sections': []}
-
-            sections_by_subject[subject] = _build_subject_sections_for_pattern(
-                subject=subject,
-                section_structure=detected_structure,
-                fallback_count=max(1, expected),
-            )
-
-        # Create pattern + exam
-        from patterns.models import ExamPattern, PatternSection
-        from exams.models import Exam
-        from questions.models import Question
-
-        pattern_name = request.data.get('pattern_name') or f"Auto Pattern - {uploaded_file.name}"
-        exam_title = request.data.get('exam_title') or f"Auto Exam - {uploaded_file.name}"
-        requested_duration = int(request.data.get('total_duration') or 0)
-
-        with transaction.atomic():
-            total_questions = sum(
-                (sec['end_question'] - sec['start_question'] + 1)
-                for subject_secs in sections_by_subject.values()
-                for sec in subject_secs
-            )
-            if total_questions <= 0:
-                total_questions = max(1, int(pre_result.total_estimated_questions or 1))
-
-            default_duration = max(30, total_questions * 2)
-            total_duration = requested_duration if requested_duration > 0 else default_duration
-
-            pattern = ExamPattern.objects.create(
-                name=pattern_name[:200],
-                description='Auto-created from uploaded PDF/document',
-                institute=request.user.institute,
-                total_questions=total_questions,
-                total_duration=total_duration,
-                total_marks=total_questions,
-                created_by=request.user,
-                is_active=True,
-            )
-
-            created_sections = []
-            for subject, subject_sections in sections_by_subject.items():
-                for order_idx, sec in enumerate(subject_sections, start=1):
-                    ps = PatternSection.objects.create(
-                        pattern=pattern,
-                        name=sec['name'][:100],
-                        subject=subject[:100],
-                        question_type=_normalize_qtype_for_models(sec['question_type']),
-                        start_question=int(sec['start_question']),
-                        end_question=int(sec['end_question']),
-                        marks_per_question=int(sec['marks_per_question']),
-                        negative_marking=sec['negative_marking'],
-                        min_questions_to_attempt=int(sec['end_question']) - int(sec['start_question']) + 1,
-                        is_compulsory=True,
-                        order=order_idx,
-                    )
-                    created_sections.append(ps)
-
-            # Recompute totals from created sections
-            actual_total_questions = sum(s.total_questions for s in created_sections)
-            actual_total_marks = sum(s.total_questions * s.marks_per_question for s in created_sections)
-            if actual_total_questions > 0:
-                pattern.total_questions = actual_total_questions
-                pattern.total_marks = actual_total_marks
-                pattern.save(update_fields=['total_questions', 'total_marks'])
-
-            start_in_hours = int(request.data.get('start_in_hours') or 24)
-            start_at = timezone.now() + timedelta(hours=max(0, start_in_hours))
-            end_at = start_at + timedelta(minutes=pattern.total_duration)
-
-            exam = Exam.objects.create(
-                title=exam_title[:200],
-                description='Auto-created from uploaded PDF/document',
-                institute=request.user.institute,
-                pattern=pattern,
-                status='draft',
-                start_date=start_at,
-                end_date=end_at,
-                duration_minutes=pattern.total_duration,
-                created_by=request.user,
-            )
-
-        # Extract + import questions into exam
-        extractor = SectionQuestionExtractor()
-        mapper = SectionMapper()
-
-        imported_total = 0
-        failed_total = 0
-        subject_stats = []
-
-        for subject in subjects:
-            subject_data = pre_result.subject_separated_content.get(subject, {})
-            if isinstance(subject_data, dict):
-                subject_content = subject_data.get('content', '')
-            else:
-                subject_content = str(subject_data or '')
-
-            expected = int((pre_result.subject_question_counts or {}).get(subject, 0) or 0)
-            extracted = extractor.extract_questions_by_sections(
-                text_content=subject_content,
-                document_structure={'sections': [
-                    {
-                        'name': s['name'],
-                        'type_hint': s['question_type'],
-                        'question_range': f"{s['start_question']}-{s['end_question']}",
-                        'question_count': int(s['end_question']) - int(s['start_question']) + 1,
-                        'format_description': '',
-                    }
-                    for s in sections_by_subject.get(subject, [])
-                ]},
-                subject=subject,
-                expected_question_count=expected,
-            )
-
-            extracted_sections = []
-            for r in extracted.get('sections', []):
-                extracted_sections.append({
-                    'section_name': r.section_name,
-                    'section_type': r.section_type,
-                    'questions': r.questions,
-                    'total_extracted': r.total_extracted,
-                })
-
-            preview = mapper.map_questions_to_sections(
-                exam_id=exam.id,
-                pattern_id=pattern.id,
-                subject=subject,
-                extracted_sections=extracted_sections,
-            )
-            mappings = mapper.prepare_import_mappings(preview)
-
-            imported_subject = 0
-            failed_subject = 0
-            for mapping in mappings:
-                q_data = mapping.get('question_data', {})
-                section_id = mapping.get('section_id')
-
-                try:
-                    section = PatternSection.objects.get(id=section_id)
-
-                    existing_in_section = Question.objects.filter(
-                        exam=exam,
-                        pattern_section_id=section_id,
-                        is_active=True,
-                    ).count()
-                    actual_question_number = section.start_question + existing_in_section
-
-                    options = q_data.get('options', [])
-                    if not isinstance(options, list):
-                        options = []
-
-                    correct_answer = q_data.get('correct_answer', '') or q_data.get('answer', '') or ''
-                    if isinstance(correct_answer, list):
-                        correct_answer = ', '.join(str(x) for x in correct_answer if x)
-                    correct_answer = str(correct_answer).strip()
-
-                    Question.objects.create(
-                        exam=exam,
-                        question_text=str(q_data.get('question_text', '') or '').strip(),
-                        question_type=_normalize_qtype_for_models(q_data.get('question_type', section.question_type)),
-                        difficulty=str(q_data.get('difficulty', 'medium') or 'medium'),
-                        options=options,
-                        structure=q_data.get('structure', {}) if isinstance(q_data.get('structure', {}), dict) else {},
-                        correct_answer=correct_answer,
-                        solution=str(q_data.get('solution', '') or ''),
-                        explanation=str(q_data.get('explanation', '') or ''),
-                        marks=section.marks_per_question,
-                        negative_marks=section.negative_marking,
-                        subject=subject,
-                        question_number=actual_question_number,
-                        question_number_in_pattern=actual_question_number,
-                        pattern_section_id=section_id,
-                        pattern_section_name=section.name,
-                        institute=exam.institute,
-                        created_by=request.user,
-                        is_active=True,
-                    )
-                    imported_subject += 1
-                except Exception:
-                    failed_subject += 1
-
-            imported_total += imported_subject
-            failed_total += failed_subject
-            subject_stats.append({
-                'subject': subject,
-                'imported': imported_subject,
-                'failed': failed_subject,
-                'extracted': int(extracted.get('total_extracted', 0) or 0),
-            })
-
-        return Response(
-            {
-                'success': True,
-                'message': 'PDF processed successfully. Pattern, exam, and questions created.',
-                'pattern': {
-                    'id': pattern.id,
-                    'name': pattern.name,
-                    'total_questions': pattern.total_questions,
-                    'total_marks': pattern.total_marks,
-                    'total_duration': pattern.total_duration,
-                },
-                'exam': {
-                    'id': exam.id,
-                    'title': exam.title,
-                    'status': exam.status,
-                },
-                'import_summary': {
-                    'subjects': subject_stats,
-                    'total_imported': imported_total,
-                    'total_failed': failed_total,
-                }
-            },
-            status=status.HTTP_201_CREATED
-        )
-
-    except Exception as e:
-        logger.error(f"Auto create exam from PDF failed: {e}", exc_info=True)
-        return Response(
-            {'error': f'Failed to create exam from PDF: {str(e)}'},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
 
 
 # ===========================

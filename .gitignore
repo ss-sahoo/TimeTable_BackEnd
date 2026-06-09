@@ -5,6 +5,7 @@ __pycache__/
 *.so
 .Python
 venv/
+.venv/
 ENV/
 env/
 *.egg-info/
@@ -34,10 +35,19 @@ local_settings.py
 *.swo
 *~
 .DS_Store
+\#*\#
+.\#*
 
 # Misc
 *.backup
 test_*.py
+
+# Database dumps
+*.sql
+
+# Codebase audit artifacts
+CODEBASE_AUDIT.md
+codebase_audit.xlsx
 
 # Media files (optional - comment out if you want to track uploads)
 media/

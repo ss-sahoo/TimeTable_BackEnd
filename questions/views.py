@@ -37,6 +37,9 @@ except ImportError:
 class QuestionListView(generics.ListCreateAPIView):
     """List and create questions"""
     permission_classes = [permissions.IsAuthenticated]
+    # Whitelisted sort keys. Default ordering (queryset .order_by('-created_at'))
+    # is preserved when `?ordering=` is omitted; this is purely additive.
+    ordering_fields = ['created_at', 'updated_at', 'subject', 'topic', 'difficulty', 'question_number']
 
     def get_serializer_class(self):
         if self.request.method == 'POST':

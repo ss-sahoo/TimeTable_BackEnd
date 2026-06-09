@@ -8,12 +8,13 @@ from django.db.models import Q
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import User
 from .device_session_manager import DeviceSessionManager
+from exam_flow_backend.throttling import LoginAnonRateThrottle, LoginUserRateThrottle
 
 
 def _get_user_by_identifier(identifier: str) -> Optional[User]:
@@ -53,6 +54,7 @@ class BaseRoleLoginView(APIView):
     """
 
     permission_classes = [AllowAny]
+    throttle_classes = [LoginAnonRateThrottle, LoginUserRateThrottle]
     allowed_roles: Tuple[str, ...] = ()
 
     def post(self, request, *args, **kwargs):
@@ -247,6 +249,7 @@ class ManagerLoginView(BaseRoleLoginView):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([LoginUserRateThrottle])
 def change_password(request):
     """
     Allow Admin and Student to change their password.
@@ -287,13 +290,19 @@ def change_password(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
     
-    # Validate new password (basic validation)
-    if len(new_password) < 8:
+    # Validate new password against Django's password validators (length,
+    # commonness, user-attribute similarity, numeric-only). Returns a 400
+    # with the same {"detail": ...} shape the frontend already handles.
+    from django.contrib.auth.password_validation import validate_password as _validate_password
+    from django.core.exceptions import ValidationError as _DjValidationError
+    try:
+        _validate_password(new_password, user)
+    except _DjValidationError as exc:
         return Response(
-            {"detail": "New password must be at least 8 characters long."},
+            {"detail": " ".join(exc.messages)},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    
+
     # Set new password
     user.set_password(new_password)
     user.save()

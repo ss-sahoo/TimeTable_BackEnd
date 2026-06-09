@@ -1,6 +1,7 @@
 from rest_framework import status, generics, permissions
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.response import Response
+from exam_flow_backend.throttling import LoginAnonRateThrottle, LoginUserRateThrottle
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import login, logout
 from django.contrib.auth.hashers import make_password
@@ -24,9 +25,26 @@ from rest_framework.exceptions import PermissionDenied
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
+@throttle_classes([LoginAnonRateThrottle])
 @csrf_exempt
 def user_registration_view(request):
-    """User registration - no institute required"""
+    """
+    Register a new user. Institute association is optional; if the user has
+    no institute, activity logging is skipped.
+
+    Request body: see `UserRegistrationSerializer`.
+
+    Responses:
+        201: {"user": <UserSerializer>, "access": "...", "refresh": "...",
+              "message": "User registered successfully"}
+        400: serializer validation errors.
+
+    Side effects:
+        - Sends credentials email via Mailgun for non-temp emails. Email
+          failures are swallowed and do not roll back user creation.
+
+    Rate limited per `login` scope to discourage abuse.
+    """
     serializer = UserRegistrationSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
 
@@ -66,6 +84,7 @@ def user_registration_view(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
+@throttle_classes([LoginAnonRateThrottle, LoginUserRateThrottle])
 @csrf_exempt
 def user_login_view(request):
     """
