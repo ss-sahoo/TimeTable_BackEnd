@@ -42,7 +42,7 @@ class Exam(models.Model):
     # Settings
     max_attempts = models.IntegerField(default=1, validators=[MinValueValidator(1)])
     allow_late_submission = models.BooleanField(default=False)
-    late_submission_penalty = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    late_submission_penalty = models.DecimalField(max_digits=7, decimal_places=2, default=0.00)
     
     # Security settings
     require_fullscreen = models.BooleanField(default=True)
@@ -500,8 +500,8 @@ class ExamAttempt(models.Model):
     time_spent = models.IntegerField(default=0, help_text="Time spent in seconds")
     
     # Results
-    score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
-    percentage = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    score = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
+    percentage = models.DecimalField(max_digits=7, decimal_places=2, null=True, blank=True)
     rank = models.IntegerField(null=True, blank=True)
     
     # Security
@@ -710,12 +710,12 @@ class ExamAnalytics(models.Model):
     total_invited = models.IntegerField(default=0)
     total_started = models.IntegerField(default=0)
     total_completed = models.IntegerField(default=0)
-    completion_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    completion_rate = models.DecimalField(max_digits=7, decimal_places=2, default=0.00)
     
     # Performance stats
-    average_score = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
-    highest_score = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
-    lowest_score = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
+    average_score = models.DecimalField(max_digits=7, decimal_places=2, default=0.00)
+    highest_score = models.DecimalField(max_digits=7, decimal_places=2, default=0.00)
+    lowest_score = models.DecimalField(max_digits=7, decimal_places=2, default=0.00)
     
     # Time stats
     average_time_spent = models.IntegerField(default=0)
@@ -737,8 +737,8 @@ class QuestionAnalytics(models.Model):
     correct_attempts = models.IntegerField(default=0)
     wrong_attempts = models.IntegerField(default=0)
     unattempted = models.IntegerField(default=0)
-    average_score = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
-    max_marks = models.DecimalField(max_digits=5, decimal_places=2, default=1.00)
+    average_score = models.DecimalField(max_digits=7, decimal_places=2, default=0.00)
+    max_marks = models.DecimalField(max_digits=7, decimal_places=2, default=1.00)
     
     # Difficulty metrics
     difficulty_level = models.CharField(max_length=20, choices=[
@@ -796,8 +796,8 @@ class QuestionEvaluation(models.Model):
     evaluation_status = models.CharField(max_length=20, choices=EVALUATION_STATUS_CHOICES, default='pending')
     
     # Scoring
-    marks_obtained = models.DecimalField(max_digits=5, decimal_places=2, default=0.00)
-    max_marks = models.DecimalField(max_digits=5, decimal_places=2)
+    marks_obtained = models.DecimalField(max_digits=7, decimal_places=2, default=0.00)
+    max_marks = models.DecimalField(max_digits=7, decimal_places=2)
     is_correct = models.BooleanField(default=False)
     
     # Evaluation metadata
@@ -967,7 +967,7 @@ class EvaluationRubric(models.Model):
     description = models.TextField()
     
     # Scoring criteria
-    max_marks = models.DecimalField(max_digits=5, decimal_places=2)
+    max_marks = models.DecimalField(max_digits=7, decimal_places=2)
     criteria = models.JSONField(default=list)  # List of criteria with marks distribution
     
     # Usage
