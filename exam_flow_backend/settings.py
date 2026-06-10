@@ -319,6 +319,7 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
     'x-device-fingerprint',  # For device session validation
+    'x-request-id',          # For tracing requests
 ]
 
 # CSRF settings

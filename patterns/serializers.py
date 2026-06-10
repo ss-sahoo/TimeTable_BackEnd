@@ -1,4 +1,7 @@
 from rest_framework import serializers
+from django.db import transaction
+from django.core.exceptions import ValidationError as DjangoValidationError
+from rest_framework.exceptions import ValidationError as DRFValidationError
 from .models import Subject, ExamPattern, PatternSection, PatternTemplate
 
 
@@ -221,34 +224,107 @@ class ExamPatternCreateSerializer(serializers.ModelSerializer):
         # Update pattern fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-        instance.save()
         
-        if sections_data is not None:
-            # Get existing sections
-            existing_sections = {section.id: section for section in instance.sections.all()}
-            updated_section_ids = []
-            
-            for section_data in sections_data:
-                section_id = section_data.get('id')
-                if section_id and section_id in existing_sections:
-                    # Update existing section
-                    section_instance = existing_sections[section_id]
-                    for attr, value in section_data.items():
-                        if attr != 'id':
-                            setattr(section_instance, attr, value)
-                    section_instance.save()
-                    updated_section_ids.append(section_id)
-                else:
-                    # Create new section
-                    # Remove id if it's a new section (might be 0 or null from frontend)
-                    section_data.pop('id', None)
-                    new_section = PatternSection.objects.create(pattern=instance, **section_data)
-                    updated_section_ids.append(new_section.id)
-            
-            # Delete sections that were not included in the update
-            instance.sections.exclude(id__in=updated_section_ids).delete()
-            
-        return instance
+        try:
+            with transaction.atomic():
+                instance.save()
+                
+                if sections_data is not None:
+                    # Get existing sections
+                    existing_sections = {section.id: section for section in instance.sections.all()}
+                    updated_section_ids = []
+                    
+                    # Group sections by subject for independent auto-adjustment
+                    subject_groups = {}
+                    for section_data in sections_data:
+                        subj = section_data.get('subject', 'General')
+                        if subj not in subject_groups:
+                            subject_groups[subj] = []
+                        subject_groups[subj].append(section_data)
+                    
+                    for subject, sections_list in subject_groups.items():
+                        # Sort sections by order to determine correct sequence
+                        sections_list.sort(key=lambda x: x.get('order', 1))
+                        
+                        current_question = 1
+                        
+                        # Process sections to calculate new ranges and apply temporary shifts
+                        # We use temporary shifts to avoid overlaps during sequential updates
+                        for section_data in sections_list:
+                            section_id = section_data.get('id')
+                            
+                            # Determine length
+                            start = section_data.get('start_question')
+                            end = section_data.get('end_question')
+                            
+                            if start is not None and end is not None:
+                                length = end - start + 1
+                            elif section_id and section_id in existing_sections:
+                                s = existing_sections[section_id]
+                                length = s.end_question - s.start_question + 1
+                            else:
+                                length = 1
+                            
+                            # Update values in data
+                            section_data['start_question'] = current_question
+                            section_data['end_question'] = current_question + length - 1
+                            current_question = section_data['end_question'] + 1
+                            
+                            if section_id and section_id in existing_sections:
+                                section_instance = existing_sections[section_id]
+                                # Apply temporary shift to far range to avoid DB overlap check during intermediate saves
+                                section_instance.start_question = 10000 + section_data['start_question']
+                                section_instance.end_question = 10000 + section_data['end_question']
+                                section_instance.save()
+                                
+                                # Prepare real values for final save
+                                for attr, value in section_data.items():
+                                    if attr != 'id':
+                                        setattr(section_instance, attr, value)
+                            else:
+                                # New section - will create in final phase
+                                pass
+                        
+                        # Final phase: Apply real values to existing and create new sections
+                        for section_data in sections_list:
+                            section_id = section_data.get('id')
+                            if section_id and section_id in existing_sections:
+                                section_instance = existing_sections[section_id]
+                                section_instance.start_question = section_data['start_question']
+                                section_instance.end_question = section_data['end_question']
+                                section_instance.save()
+                                updated_section_ids.append(section_id)
+                            else:
+                                # Create new section
+                                section_data.pop('id', None)
+                                new_section = PatternSection.objects.create(pattern=instance, **section_data)
+                                updated_section_ids.append(new_section.id)
+                    
+                    # Delete sections that were not included in the update
+                    instance.sections.exclude(id__in=updated_section_ids).delete()
+                    
+                    # Recalculate and update pattern totals
+                    all_sections = instance.sections.all()
+                    # Group by subject and find the maximum end_question across all subjects
+                    # OR just sum unique question numbers if that's the logic.
+                    # Usually total_questions is the sum of questions in all sections?
+                    # Let's check how it's used.
+                    
+                    total_q = sum(s.total_questions_in_section for s in all_sections)
+                    total_m = sum(s.total_marks_in_section for s in all_sections)
+                    
+                    instance.total_questions = total_q
+                    instance.total_marks = total_m
+                    instance.save()
+                    
+            return instance
+        except DjangoValidationError as e:
+            raise DRFValidationError(detail=e.message_dict if hasattr(e, 'message_dict') else str(e))
+        except Exception as e:
+            # Fallback for other potential errors during save
+            if "overlap" in str(e).lower() or "unique" in str(e).lower():
+                raise DRFValidationError(detail="Section ranges overlap or are invalid. Please check your data.")
+            raise e
 
 
 class PatternTemplateSerializer(serializers.ModelSerializer):
