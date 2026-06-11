@@ -243,79 +243,51 @@ class ExamPatternCreateSerializer(serializers.ModelSerializer):
                         subject_groups[subj].append(section_data)
                     
                     for subject, sections_list in subject_groups.items():
-                        # Sort sections by order to determine correct sequence
+                        # Sort sections by order
                         sections_list.sort(key=lambda x: x.get('order', 1))
                         
-                        current_question = 1
-                        
-                        # Process sections to calculate new ranges and apply temporary shifts
-                        # We use temporary shifts to avoid overlaps during sequential updates
+                        # Phase 1: Temporary shift to avoid unique constraint overlaps
                         for section_data in sections_list:
                             section_id = section_data.get('id')
-                            
-                            # Determine length based on the data sent from the frontend
-                            # If start/end are provided, use them to define the length
-                            start = section_data.get('start_question')
-                            end = section_data.get('end_question')
-                            
-                            if start is not None and end is not None:
-                                try:
-                                    length = int(end) - int(start) + 1
-                                except (ValueError, TypeError):
-                                    length = 1
-                            elif section_id and section_id in existing_sections:
-                                s = existing_sections[section_id]
-                                length = s.end_question - s.start_question + 1
-                            else:
-                                length = 5 # Default length for new sections if not specified
-                            
-                            # Standardize values in data
-                            section_data['start_question'] = current_question
-                            section_data['end_question'] = current_question + max(1, length) - 1
-                            current_question = section_data['end_question'] + 1
-                            
                             if section_id and section_id in existing_sections:
                                 section_instance = existing_sections[section_id]
-                                # Apply temporary shift to far range to avoid DB overlap check during intermediate saves
-                                section_instance.start_question = 10000 + section_data['start_question']
-                                section_instance.end_question = 10000 + section_data['end_question']
+                                section_instance.start_question = 10000 + (section_instance.start_question or 0)
+                                section_instance.end_question = 10000 + (section_instance.end_question or 0)
                                 section_instance.save()
+                        
+                        # Phase 2: Apply actual values
+                        for section_data in sections_list:
+                            section_id = section_data.get('id')
+                            if section_id and section_id in existing_sections:
+                                section_instance = existing_sections[section_id]
+                                # Map marking scheme back to flat fields if provided
+                                marking_scheme = section_data.pop('marking_scheme', None)
+                                if marking_scheme:
+                                    section_instance.marks_per_question = marking_scheme.get('max_marks', section_instance.marks_per_question)
                                 
-                                # Prepare real values for final save
                                 for attr, value in section_data.items():
                                     if attr != 'id':
                                         setattr(section_instance, attr, value)
-                            else:
-                                # New section - will create in final phase
-                                pass
-                        
-                        # Final phase: Apply real values to existing and create new sections
-                        for section_data in sections_list:
-                            section_id = section_data.get('id')
-                            if section_id and section_id in existing_sections:
-                                section_instance = existing_sections[section_id]
-                                section_instance.start_question = section_data['start_question']
-                                section_instance.end_question = section_data['end_question']
                                 section_instance.save()
                                 updated_section_ids.append(section_id)
                             else:
                                 # Create new section
                                 section_data.pop('id', None)
+                                marking_scheme = section_data.pop('marking_scheme', None)
+                                if marking_scheme:
+                                    section_data['marks_per_question'] = marking_scheme.get('max_marks', 4)
+                                
                                 new_section = PatternSection.objects.create(pattern=instance, **section_data)
                                 updated_section_ids.append(new_section.id)
                     
                     # Delete sections that were not included in the update
                     instance.sections.exclude(id__in=updated_section_ids).delete()
                     
-                    # Recalculate and update pattern totals
+                    # IMPORTANT: Force refresh of all sections from DB to get the latest start/end question values
                     all_sections = instance.sections.all()
-                    # Group by subject and find the maximum end_question across all subjects
-                    # OR just sum unique question numbers if that's the logic.
-                    # Usually total_questions is the sum of questions in all sections?
-                    # Let's check how it's used.
                     
-                    total_q = sum(s.total_questions_in_section for s in all_sections)
-                    total_m = sum(s.total_marks_in_section for s in all_sections)
+                    total_q = sum((s.end_question - s.start_question + 1) for s in all_sections)
+                    total_m = sum(((s.end_question - s.start_question + 1) * s.marks_per_question) for s in all_sections)
                     
                     instance.total_questions = total_q
                     instance.total_marks = total_m
