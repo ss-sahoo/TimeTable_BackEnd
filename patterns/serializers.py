@@ -253,21 +253,25 @@ class ExamPatternCreateSerializer(serializers.ModelSerializer):
                         for section_data in sections_list:
                             section_id = section_data.get('id')
                             
-                            # Determine length
+                            # Determine length based on the data sent from the frontend
+                            # If start/end are provided, use them to define the length
                             start = section_data.get('start_question')
                             end = section_data.get('end_question')
                             
                             if start is not None and end is not None:
-                                length = end - start + 1
+                                try:
+                                    length = int(end) - int(start) + 1
+                                except (ValueError, TypeError):
+                                    length = 1
                             elif section_id and section_id in existing_sections:
                                 s = existing_sections[section_id]
                                 length = s.end_question - s.start_question + 1
                             else:
-                                length = 1
+                                length = 5 # Default length for new sections if not specified
                             
-                            # Update values in data
+                            # Standardize values in data
                             section_data['start_question'] = current_question
-                            section_data['end_question'] = current_question + length - 1
+                            section_data['end_question'] = current_question + max(1, length) - 1
                             current_question = section_data['end_question'] + 1
                             
                             if section_id and section_id in existing_sections:
