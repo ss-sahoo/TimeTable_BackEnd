@@ -111,13 +111,28 @@ class MediaPipeProctoringSystem:
         try:
             start_time = time.time()
             
-            # Decode image
-            img_bytes = base64.b64decode(image_data)
-            np_arr = np.frombuffer(img_bytes, np.uint8)
-            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            # Decode image - handle data URI header if present
+            try:
+                if isinstance(image_data, str) and ";base64," in image_data:
+                    # Strip the header (e.g. "data:image/jpeg;base64,")
+                    imgstr = image_data.split(";base64,")[1]
+                else:
+                    imgstr = image_data
+                
+                img_bytes = base64.b64decode(imgstr)
+                np_arr = np.frombuffer(img_bytes, np.uint8)
+                frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+            except Exception as decode_err:
+                logger.error(f"Image decoding failed in AI analyzer: {decode_err}")
+                return {
+                    'success': False,
+                    'error': f'Decoding failed: {str(decode_err)}',
+                    'violations': [],
+                    'faces_detected': 0
+                }
             
             if frame is None:
-                raise ValueError("Unable to decode image")
+                raise ValueError("OpenCV imdecode returned None. Invalid image data.")
             
             height, width = frame.shape[:2]
             
