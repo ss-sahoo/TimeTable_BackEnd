@@ -344,6 +344,8 @@ class ExamAttemptSerializer(serializers.ModelSerializer):
     time_remaining = serializers.ReadOnlyField()
     has_audio_activity = serializers.SerializerMethodField()
     has_face_violation = serializers.SerializerMethodField()
+    has_multiple_faces = serializers.SerializerMethodField()
+    has_looking_away = serializers.SerializerMethodField()
     has_tab_switch = serializers.SerializerMethodField()
 
     class Meta:
@@ -353,7 +355,7 @@ class ExamAttemptSerializer(serializers.ModelSerializer):
             'status', 'started_at', 'submitted_at', 'time_spent', 'score', 'percentage',
             'rank', 'ip_address', 'violations_count', 'proctoring_enabled', 
             'max_violations_allowed', 'fullscreen_required', 'is_completed', 'time_remaining',
-            'has_audio_activity', 'has_face_violation', 'has_tab_switch',
+            'has_audio_activity', 'has_face_violation', 'has_multiple_faces', 'has_looking_away', 'has_tab_switch',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'student', 'created_at', 'updated_at']
@@ -362,7 +364,13 @@ class ExamAttemptSerializer(serializers.ModelSerializer):
         return obj.violations.filter(violation_type__in=['audio_noise', 'audio_voice_detected']).exists()
 
     def get_has_face_violation(self, obj):
-        return obj.violations.filter(violation_type__in=['no_face', 'multiple_faces']).exists()
+        return obj.violations.filter(violation_type='no_face').exists()
+
+    def get_has_multiple_faces(self, obj):
+        return obj.violations.filter(violation_type='multiple_faces').exists()
+
+    def get_has_looking_away(self, obj):
+        return obj.violations.filter(violation_type='looking_away').exists()
 
     def get_has_tab_switch(self, obj):
         return obj.violations.filter(violation_type='tab_switch').exists()

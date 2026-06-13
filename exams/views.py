@@ -1224,8 +1224,9 @@ def get_proctoring_snapshots(request, attempt_id):
     if user.role in ['student', 'STUDENT'] and attempt.student != user:
         return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
     
-    # Check if user has admin access to this exam
-    if user.role not in ['student', 'STUDENT'] and attempt.exam.institute != user.institute:
+    # Check if user has admin access to this exam (Superadmins see everything)
+    is_super_admin = user.role.lower() == 'superadmin' or user.role.lower() == 'admin'
+    if not is_super_admin and user.role not in ['student', 'STUDENT'] and attempt.exam.institute != user.institute:
         return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
     
     # Get new snapshots from ProctoringSnapshot model (PRIMARY STORAGE)
