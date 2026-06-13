@@ -40,7 +40,9 @@ from .models import (
     QuestionEvaluation,
     PublicExamAccessLog,
     ProctoringSnapshot,
+    ProctoringVideoClip,
 )
+import ipaddress
 from questions.models import Question
 from .serializers import (
     ExamSerializer, ExamCreateSerializer, ExamAttemptSerializer, ExamResultSerializer,
@@ -1161,6 +1163,40 @@ def log_proctoring_incident(request, attempt_id):
     }, status=status.HTTP_200_OK)
 
 
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+@throttle_classes([PublicAccessAnonRateThrottle]) # Reuse throttle for large uploads
+def upload_proctoring_clip(request):
+    """Save a video clip of an exam session for proctoring review."""
+    try:
+        attempt_id = request.data.get('attempt_id')
+        video_file = request.FILES.get('video_clip')
+        
+        if not attempt_id or not video_file:
+            return Response({'error': 'Missing attempt_id or video_clip'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        attempt = ExamAttempt.objects.get(id=attempt_id)
+        
+        # Verify student or admin access
+        if attempt.student != request.user and not request.user.is_staff:
+            return Response({'error': 'Access denied'}, status=status.HTTP_403_FORBIDDEN)
+            
+        clip = ProctoringVideoClip.objects.create(
+            attempt=attempt,
+            video_file=video_file,
+            duration_seconds=60, # Assumed 60s from frontend logic
+            metadata={'source': 'auto_recorder'}
+        )
+        
+        return Response({
+            'status': 'success',
+            'clip_id': clip.id
+        }, status=status.HTTP_201_CREATED)
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def get_proctoring_snapshots(request, attempt_id):
@@ -1257,12 +1293,29 @@ def get_proctoring_snapshots(request, attempt_id):
     # Count statistics
     violation_count = len([s for s in formatted_snapshots if s.get('stored_reason') == 'violation_detected'])
     
+    # Get video clips
+    video_clips = ProctoringVideoClip.objects.filter(attempt=attempt)
+    formatted_clips = []
+    for clip in video_clips:
+        video_url = clip.video_file.url
+        if not video_url.startswith('http'):
+            video_url = request.build_absolute_uri(video_url)
+        formatted_clips.append({
+            'id': clip.id,
+            'video_file': video_url,
+            'timestamp': clip.timestamp.isoformat(),
+            'duration_seconds': clip.duration_seconds,
+            'metadata': clip.metadata
+        })
+
     return Response({
         'snapshots': formatted_snapshots,
+        'video_clips': formatted_clips,
         'total_count': len(formatted_snapshots),
         'violation_snapshots': violation_count,
+        'metadata_only_snapshots': len(formatted_snapshots) - violation_count,
         'attempt_id': attempt_id,
-        'student_name': attempt.student.get_full_name() or attempt.student.email,
+        'student_name': attempt.student.get_full_name(),
         'exam_title': attempt.exam.title
     }, status=status.HTTP_200_OK)
 

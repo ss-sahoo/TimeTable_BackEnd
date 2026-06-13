@@ -67,6 +67,7 @@ urlpatterns = [
     path('attempts/<int:attempt_id>/violations/history/', views.get_violations, name='get-violations'),
     path('attempts/<int:attempt_id>/proctoring/snapshot/', views.upload_snapshot, name='upload-snapshot'),
     path('attempts/<int:attempt_id>/proctoring/snapshots/', views.get_proctoring_snapshots, name='get-proctoring-snapshots'),
+    path('proctoring/upload-clip/', views.upload_proctoring_clip, name='upload-proctoring-clip'),
     path('attempts/<int:attempt_id>/proctoring/incidents/', views.log_proctoring_incident, name='log-proctoring-incident'),
     path('attempts/<int:attempt_id>/auto-save/', views.auto_save_answers, name='auto-save-answers'),
     path('validate-access/', views.validate_exam_access, name='validate-exam-access'),

@@ -597,6 +597,9 @@ class ExamViolation(models.Model):
         ('fullscreen_error', 'Fullscreen Error'),
         ('right_click', 'Right Click Attempt'),
         ('keyboard_shortcut', 'Keyboard Shortcut Attempt'),
+        ('audio_noise', 'Background Noise Detected'),
+        ('audio_voice_detected', 'Voice Detected'),
+        ('camera_blocked', 'Camera/Mic Blocked'),
     ]
     
     attempt = models.ForeignKey(ExamAttempt, on_delete=models.CASCADE, related_name='violations')
@@ -644,6 +647,21 @@ class ProctoringSnapshot(models.Model):
 
     def __str__(self):
         return f"Snapshot for {self.attempt} at {self.timestamp}"
+
+
+class ProctoringVideoClip(models.Model):
+    """Store video clips of exam sessions for security review"""
+    attempt = models.ForeignKey(ExamAttempt, on_delete=models.CASCADE, related_name='proctoring_video_clips')
+    video_file = models.FileField(upload_to='proctoring_videos/')
+    timestamp = models.DateTimeField(auto_now_add=True)
+    duration_seconds = models.IntegerField(default=60)
+    metadata = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ['-timestamp']
+
+    def __str__(self):
+        return f"Video clip for {self.attempt} at {self.timestamp}"
 
 
 class ExamInvitation(models.Model):
