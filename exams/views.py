@@ -969,143 +969,88 @@ def get_violations(request, attempt_id):
 @permission_classes([permissions.IsAuthenticated])
 def upload_snapshot(request, attempt_id):
     """
-    Upload webcam snapshot for proctoring analysis.
-    
-    Storage Optimization (Selective Storage):
-    - If violations detected: Store full snapshot (timestamp, metadata, full analysis)
-    - If no violations: Store minimal metadata only (timestamp, face count, success flag)
-    This reduces storage by ~90% since most snapshots have no violations.
+    Robust upload for proctoring snapshots. Ensures images are saved and analyzed.
     """
     try:
         attempt = ExamAttempt.objects.get(id=attempt_id, student=request.user)
-    except ExamAttempt.DoesNotExist:
-        return Response({'error': 'Exam attempt not found'}, status=status.HTTP_404_NOT_FOUND)
-    
-    # Allow photo upload for identity verification even before exam starts
-    # Only restrict after exam is completed or submitted
-    if attempt.status in ['completed', 'submitted']:
-        return Response({'error': 'Exam is already completed'}, status=status.HTTP_400_BAD_REQUEST)
-    
-    serializer = SnapshotUploadSerializer(data=request.data)
-    if serializer.is_valid():
-        # Get or create proctoring record
-        proctoring, created = ExamProctoring.objects.get_or_create(attempt=attempt)
         
-        # Check if this is pre-exam identity verification (skip AI analysis)
-        metadata = serializer.validated_data.get('metadata', {})
-        is_identity_verification = metadata.get('type') == 'identity_verification'
+        # 1. Be flexible with field names
+        image_data = request.data.get('image_data') or request.data.get('snapshot')
+        metadata = request.data.get('metadata', {})
+        timestamp_str = request.data.get('timestamp') or timezone.now().isoformat()
         
-        if is_identity_verification:
-            # For identity verification, just store the photo without AI analysis
-            analysis = {
-                'success': True,
-                'type': 'identity_verification',
-                'message': 'Identity photo captured successfully'
-            }
-        else:
-            # Analyze the snapshot using AI for proctoring
-            try:
-                analysis = proctoring_analyzer.analyze_snapshot(serializer.validated_data['image_data'])
-            except Exception as e:
-                # If AI analysis fails, still store the snapshot
-                analysis = {
-                    'success': False,
-                    'error': str(e),
-                    'message': 'AI analysis failed but snapshot stored'
-                }
-        
-        # Check if violations were detected
-        has_violations = (
-            not is_identity_verification and 
-            analysis.get('success', False) and 
-            len(analysis.get('violations', [])) > 0
-        )
-        
-        # ALWAYS store full snapshot with image for review purposes
-        # Convert base64 to file and save to ProctoringSnapshot model
+        if not image_data:
+            return Response({'error': 'No image data provided'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Decode Image
         try:
-            # Prepare image file - find format and actual image data
-            image_input = serializer.validated_data['image_data']
-            if ';base64,' in image_input:
-                format_part, imgstr = image_input.split(';base64,')
+            if ';base64,' in image_data:
+                format_part, imgstr = image_data.split(';base64,')
                 ext = format_part.split('/')[-1]
             else:
-                imgstr = image_input
-                ext = 'jpg'  # Default to jpg if format not provided
+                imgstr = image_data
+                ext = 'jpg'
             
-            # Construct filename: attempt_ID_timestamp.ext
-            filename = f"snapshot_{attempt.id}_{int(timezone.now().timestamp())}.{ext}"
-            image_file = ContentFile(base64.b64decode(imgstr), name=filename)
-            
-            # Create ProctroingSnapshot instance (This uploads to Cloud/Spaces)
-            snapshot_obj = ProctoringSnapshot.objects.create(
-                attempt=attempt,
-                image=image_file,
-                timestamp=serializer.validated_data['timestamp'],
-                metadata=serializer.validated_data['metadata'],
-                analysis=analysis,
-                has_violations=has_violations,
-                stored_reason='violation_detected' if has_violations else 'monitoring'
-            )
-            
-            # Store metadata only in the main proctoring JSON list (keep image_data empty to save DB space)
-            snapshot_info = {
-                'id': snapshot_obj.id,
-                'timestamp': serializer.validated_data['timestamp'].isoformat(),
-                'metadata': serializer.validated_data['metadata'],
-                'analysis': analysis,
-                'image_url': snapshot_obj.image.url,  # Store the Cloud URL instead of Base64
-                'stored_reason': snapshot_obj.stored_reason,
-                'has_violations': has_violations
-            }
-            proctoring.snapshots.append(snapshot_info)
-            proctoring.save()
-            
+            from django.core.files.base import ContentFile
+            import base64
+            from django.utils import timezone
+            filename = f"snap_{attempt_id}_{int(timezone.now().timestamp())}.{ext}"
+            image_content = ContentFile(base64.b64decode(imgstr), name=filename)
         except Exception as e:
-            logger.error(f"Failed to process snapshot file: {e}")
-            # Fallback: just store metadata without image if file saving fails
-            snapshot_info = {
-                'timestamp': serializer.validated_data['timestamp'].isoformat(),
-                'metadata': serializer.validated_data['metadata'],
-                'analysis': analysis,
-                'image_url': None,
-                'has_image': False,
-                'error': f'File storage failed: {str(e)}',
-                'has_violations': has_violations,
-                'stored_reason': 'violation_detected' if has_violations else 'monitoring'
-            }
-            proctoring.snapshots.append(snapshot_info)
-            proctoring.save()
-        
-        # Log any violations found (only for proctoring snapshots, not identity verification)
+            return Response({'error': f'Decoding failed: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. Analyze
+        analysis = {'success': False, 'message': 'Analysis failed'}
+        try:
+            from .utils_proctoring import proctoring_analyzer
+            analysis = proctoring_analyzer.analyze_snapshot(image_data)
+        except Exception as e:
+            analysis['error'] = str(e)
+
+        # 4. Save Snapshot
+        has_violations = analysis.get('success', False) and len(analysis.get('violations', [])) > 0
+        snapshot_obj = ProctoringSnapshot.objects.create(
+            attempt=attempt,
+            image=image_content,
+            timestamp=timestamp_str,
+            metadata=metadata,
+            analysis=analysis,
+            has_violations=has_violations,
+            stored_reason='violation_detected' if has_violations else 'monitoring'
+        )
+
+        # 5. Log Violations & Update Counter
         if has_violations:
-            for violation_data in analysis['violations']:
+            for v_data in analysis.get('violations', []):
                 ExamViolation.objects.create(
                     attempt=attempt,
-                    violation_type=violation_data['type'],
-                    metadata={
-                        'confidence': violation_data.get('confidence', 0),
-                        'message': violation_data.get('message', ''),
-                        'analysis_data': analysis
-                    }
+                    violation_type=v_data['type'],
+                    metadata={'confidence': v_data.get('confidence'), 'message': v_data.get('message'), 'analysis': analysis}
                 )
-                
-                # Update violation count (EXCLUDING all audio activities)
-                # Audio requires human review to determine if it's cheating or just reading aloud.
-                SOFT_VIOLATIONS = ['audio_noise', 'audio_voice_detected']
-                if violation_data['type'] not in SOFT_VIOLATIONS:
+                # Increment counter only for hard violations
+                SOFT_TYPES = ['audio_noise', 'audio_voice_detected']
+                if v_data['type'] not in SOFT_TYPES:
                     attempt.violations_count += 1
                     attempt.save(update_fields=['violations_count'])
-                
+
+        # 6. Legacy Backup
+        proctoring, _ = ExamProctoring.objects.get_or_create(attempt=attempt)
+        if hasattr(proctoring, 'snapshots'):
+            snap_info = {'id': snapshot_obj.id, 'timestamp': timestamp_str, 'has_violations': has_violations}
+            if proctoring.snapshots is None: proctoring.snapshots = []
+            proctoring.snapshots.append(snap_info)
+            proctoring.save()
+
         return Response({
-            'snapshot_uploaded': True,
-            'analysis': analysis,
-            'violation_count': attempt.violations_count,
-            'auto_disqualified': False,
-            'storage_type': 'full' if has_violations else 'metadata_only'  # Indicates what was stored
-        }, status=status.HTTP_200_OK)
-    
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            'status': 'success',
+            'id': snapshot_obj.id,
+            'violations_count': attempt.violations_count
+        }, status=status.HTTP_201_CREATED)
+
+    except ExamAttempt.DoesNotExist:
+        return Response({'error': 'Attempt not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
@@ -1297,8 +1242,28 @@ def get_proctoring_snapshots(request, attempt_id):
     # Sort by timestamp descending
     formatted_snapshots.sort(key=lambda x: x['timestamp'], reverse=True)
     
-    # Count statistics
-    violation_count = len([s for s in formatted_snapshots if s.get('stored_reason') == 'violation_detected'])
+    # Get ALL violations from ExamViolation model for the log
+    all_violations = ExamViolation.objects.filter(attempt=attempt).order_by('-timestamp')
+    formatted_violations = []
+    for v in all_violations:
+        violation_url = None
+        if v.screenshot:
+            violation_url = v.screenshot.url
+            if not violation_url.startswith('http'):
+                violation_url = request.build_absolute_uri(violation_url)
+        
+        formatted_violations.append({
+            'id': v.id,
+            'type': v.violation_type,
+            'timestamp': v.timestamp.isoformat(),
+            'screenshot_url': violation_url,
+            'metadata': v.metadata,
+            'type_display': v.get_violation_type_display()
+        })
+
+    # Count statistics (accurate count of unique violations)
+    total_violation_entries = all_violations.count()
+    snapshots_with_violations = len([s for s in formatted_snapshots if s.get('stored_reason') == 'violation_detected'])
     
     # Get video clips
     video_clips = ProctoringVideoClip.objects.filter(attempt=attempt)
@@ -1317,10 +1282,12 @@ def get_proctoring_snapshots(request, attempt_id):
 
     return Response({
         'snapshots': formatted_snapshots,
+        'violations_log': formatted_violations,
         'video_clips': formatted_clips,
         'total_count': len(formatted_snapshots),
-        'violation_snapshots': violation_count,
-        'metadata_only_snapshots': len(formatted_snapshots) - violation_count,
+        'violation_snapshots': snapshots_with_violations,
+        'total_violations': total_violation_entries,
+        'metadata_only_snapshots': len(formatted_snapshots) - snapshots_with_violations,
         'attempt_id': attempt_id,
         'student_name': attempt.student.get_full_name(),
         'exam_title': attempt.exam.title
