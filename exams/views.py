@@ -970,53 +970,91 @@ def get_violations(request, attempt_id):
 def upload_snapshot(request, attempt_id):
     """
     Robust upload for proctoring snapshots. Ensures images are saved and analyzed.
+    Accepts both full data URI (data:image/jpeg;base64,...) and raw base64 strings.
     """
-    try:
-        attempt = ExamAttempt.objects.get(id=attempt_id, student=request.user)
-        
-        # 1. Be flexible with field names
-        image_data = request.data.get('image_data') or request.data.get('snapshot')
-        metadata = request.data.get('metadata', {})
-        timestamp_str = request.data.get('timestamp') or timezone.now().isoformat()
-        
-        if not image_data:
-            return Response({'error': 'No image data provided'}, status=status.HTTP_400_BAD_REQUEST)
+    import base64
+    import traceback
+    from django.core.files.base import ContentFile
+    from django.utils import timezone as tz_utils
 
-        # 2. Decode Image
+    print(f"[SNAPSHOT] POST /attempts/{attempt_id}/proctoring/snapshot/ by user={request.user.id}")
+
+    try:
+        # Allow lookup by attempt_id — student must own the attempt or be admin
+        try:
+            attempt = ExamAttempt.objects.get(id=attempt_id, student=request.user)
+        except ExamAttempt.DoesNotExist:
+            print(f"[SNAPSHOT] Attempt {attempt_id} not found for user {request.user.id}")
+            return Response({'error': 'Exam attempt not found or not owned by this user'}, status=status.HTTP_404_NOT_FOUND)
+
+        if attempt.status not in ('in_progress', 'started'):
+            print(f"[SNAPSHOT] Attempt {attempt_id} has status={attempt.status}, still saving snapshot.")
+
+        # 1. Extract fields — be flexible with field names
+        image_data = request.data.get('image_data') or request.data.get('snapshot') or request.data.get('image')
+        metadata = request.data.get('metadata', {})
+        timestamp_raw = request.data.get('timestamp')
+
+        print(f"[SNAPSHOT] image_data present: {bool(image_data)}, length: {len(image_data) if image_data else 0}")
+
+        if not image_data:
+            return Response({'error': 'No image data provided. Send as image_data field.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 2. Parse timestamp safely
+        try:
+            if timestamp_raw:
+                from django.utils.dateparse import parse_datetime
+                ts = parse_datetime(timestamp_raw)
+                timestamp_dt = ts if ts else tz_utils.now()
+            else:
+                timestamp_dt = tz_utils.now()
+        except Exception:
+            timestamp_dt = tz_utils.now()
+
+        # 3. Decode Image — handle both full data URI and raw base64
         try:
             if ';base64,' in image_data:
-                format_part, imgstr = image_data.split(';base64,')
-                ext = format_part.split('/')[-1]
+                # Full data URI: data:image/jpeg;base64,/9j/...
+                header, imgstr = image_data.split(';base64,', 1)
+                ext = header.split('/')[-1].lower()
+                ext = ext if ext in ('jpeg', 'jpg', 'png', 'webp') else 'jpg'
             else:
+                # Raw base64 string
                 imgstr = image_data
                 ext = 'jpg'
-            
-            from django.core.files.base import ContentFile
-            import base64
-            from django.utils import timezone
-            filename = f"snap_{attempt_id}_{int(timezone.now().timestamp())}.{ext}"
-            image_content = ContentFile(base64.b64decode(imgstr), name=filename)
+
+            img_bytes = base64.b64decode(imgstr)
+            filename = f"snap_{attempt_id}_{int(tz_utils.now().timestamp())}.{ext}"
+            image_content = ContentFile(img_bytes, name=filename)
+            print(f"[SNAPSHOT] Decoded image: {len(img_bytes)} bytes, filename: {filename}")
         except Exception as e:
-            return Response({'error': f'Decoding failed: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
+            print(f"[SNAPSHOT] DECODE FAILED: {e}\n{traceback.format_exc()}")
+            return Response({'error': f'Image decoding failed: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. Create Snapshot Object FIRST (Prioritize storage)
-        snapshot_obj = ProctoringSnapshot.objects.create(
-            attempt=attempt,
-            image=image_content,
-            timestamp=timestamp_str,
-            metadata=metadata,
-            analysis={'status': 'pending', 'message': 'Awaiting analysis'},
-            has_violations=False,
-            stored_reason='monitoring'
-        )
+        # 4. Save Snapshot FIRST — prioritize storage before any analysis
+        try:
+            snapshot_obj = ProctoringSnapshot.objects.create(
+                attempt=attempt,
+                image=image_content,
+                timestamp=timestamp_dt,
+                metadata=metadata if isinstance(metadata, dict) else {},
+                analysis={'status': 'pending'},
+                has_violations=False,
+                stored_reason='monitoring'
+            )
+            print(f"[SNAPSHOT] Saved snapshot id={snapshot_obj.id}")
+        except Exception as e:
+            print(f"[SNAPSHOT] DB SAVE FAILED: {e}\n{traceback.format_exc()}")
+            return Response({'error': f'Database save failed: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # 4. Perform Analysis (If it fails, we still have the snapshot saved)
-        analysis = {'success': False, 'message': 'Analysis failed'}
+        # 5. Perform AI Analysis (non-blocking — if it fails, the snapshot is already saved)
+        analysis = {'status': 'no_analyzer', 'success': False}
         has_violations = False
         try:
             from .utils_proctoring import proctoring_analyzer
             analysis = proctoring_analyzer.analyze_snapshot(image_data)
-            
+            print(f"[SNAPSHOT] Analysis result: success={analysis.get('success')}, violations={analysis.get('violations', [])}")
+
             if analysis.get('success'):
                 has_violations = len(analysis.get('violations', [])) > 0
                 snapshot_obj.analysis = analysis
@@ -1024,48 +1062,52 @@ def upload_snapshot(request, attempt_id):
                 snapshot_obj.stored_reason = 'violation_detected' if has_violations else 'monitoring'
                 snapshot_obj.save(update_fields=['analysis', 'has_violations', 'stored_reason'])
         except Exception as e:
-            analysis['error'] = str(e)
-            snapshot_obj.analysis = analysis
+            print(f"[SNAPSHOT] Analysis error (snapshot already saved): {e}")
+            snapshot_obj.analysis = {'status': 'analysis_error', 'error': str(e)}
             snapshot_obj.save(update_fields=['analysis'])
 
-        # 5. Log Violations & Update Counter
+        # 6. Log hard violations to ExamViolation table & update counter
         if has_violations:
+            SOFT_TYPES = ['audio_noise', 'audio_voice_detected']
             for v_data in analysis.get('violations', []):
+                vtype = v_data.get('type', 'unknown')
                 ExamViolation.objects.create(
                     attempt=attempt,
-                    violation_type=v_data['type'],
-                    metadata={'confidence': v_data.get('confidence'), 'message': v_data.get('message'), 'analysis': analysis}
+                    violation_type=vtype,
+                    metadata={'confidence': v_data.get('confidence'), 'message': v_data.get('message')}
                 )
-                # Increment counter only for hard violations
-                SOFT_TYPES = ['audio_noise', 'audio_voice_detected']
-                if v_data['type'] not in SOFT_TYPES:
+                if vtype not in SOFT_TYPES:
                     attempt.violations_count += 1
                     attempt.save(update_fields=['violations_count'])
+                    print(f"[SNAPSHOT] Hard violation logged: {vtype}, total={attempt.violations_count}")
 
-        # 6. Legacy Backup
-        proctoring, _ = ExamProctoring.objects.get_or_create(attempt=attempt)
-        if hasattr(proctoring, 'snapshots'):
-            snap_info = {
-                'id': snapshot_obj.id, 
-                'timestamp': timestamp_str, 
+        # 7. Legacy backup reference
+        try:
+            proctoring, _ = ExamProctoring.objects.get_or_create(attempt=attempt)
+            if proctoring.snapshots is None:
+                proctoring.snapshots = []
+            proctoring.snapshots.append({
+                'id': snapshot_obj.id,
+                'timestamp': timestamp_dt.isoformat(),
                 'has_violations': has_violations,
                 'source': 'file_storage'
-            }
-            if proctoring.snapshots is None: proctoring.snapshots = []
-            proctoring.snapshots.append(snap_info)
+            })
             proctoring.save()
+        except Exception as e:
+            print(f"[SNAPSHOT] Legacy backup error (non-fatal): {e}")
 
         return Response({
             'status': 'success',
             'id': snapshot_obj.id,
             'violations_count': attempt.violations_count,
-            'analysis_completed': analysis.get('success', False)
+            'analysis_completed': analysis.get('success', False),
+            'has_violations': has_violations,
         }, status=status.HTTP_201_CREATED)
 
-    except ExamAttempt.DoesNotExist:
-        return Response({'error': 'Attempt not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
+        print(f"[SNAPSHOT] UNHANDLED ERROR: {e}\n{traceback.format_exc()}")
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 
 
 @api_view(['POST'])
