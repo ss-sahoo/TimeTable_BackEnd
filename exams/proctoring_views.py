@@ -9,7 +9,7 @@ from django.utils import timezone
 from datetime import timedelta
 import json
 
-from .models import Exam, ExamAttempt, ExamProctoring, ExamViolation
+from .models import Exam, ExamAttempt, ExamProctoring, ExamViolation, ProctoringVideoClip, ProctoringSnapshot
 from .ai_proctoring import mediapipe_proctoring as ai_proctoring
 from .serializers import ExamSerializer
 from accounts.models import User
@@ -405,3 +405,68 @@ def record_proctoring_event(request, attempt_id):
         return Response({'error': 'Exam attempt not found'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'error': f'Failed to record proctoring event: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def get_unified_violations(request, attempt_id):
+    """Get all security violations and proctoring evidence for an attempt"""
+    try:
+        attempt = ExamAttempt.objects.get(id=attempt_id)
+        user = request.user
+        
+        # Check permissions
+        if user.role in ['student', 'STUDENT'] and attempt.student != user:
+            # Check if student is allowed to manage exams (can_manage_exams is usually for admins)
+            return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+            
+        # Get all violation entries
+        violations = ExamViolation.objects.filter(attempt=attempt).order_by('-timestamp')
+        
+        # Get video clips
+        video_clips = []
+        clips = ProctoringVideoClip.objects.filter(attempt=attempt).order_by('-timestamp')
+        for clip in clips:
+            video_clips.append({
+                'id': clip.id,
+                'video_file': clip.video_file.url if clip.video_file else None,
+                'timestamp': clip.timestamp.isoformat(),
+                'duration_seconds': clip.duration_seconds,
+                'metadata': clip.metadata
+            })
+            
+        violation_data = []
+        for v in violations:
+            image_url = v.screenshot.url if v.screenshot else None
+            
+            # Fallback: Check if there's a linked ProctoringSnapshot in metadata
+            if not image_url and v.metadata and v.metadata.get('snapshot_id'):
+                try:
+                    snap = ProctoringSnapshot.objects.get(id=v.metadata['snapshot_id'])
+                    if snap.image:
+                        image_url = snap.image.url
+                except:
+                    pass
+                    
+            violation_data.append({
+                'id': v.id,
+                'type': v.violation_type,
+                'type_display': v.get_violation_type_display(),
+                'timestamp': v.timestamp.isoformat(),
+                'screenshot_url': image_url,
+                'metadata': v.metadata
+            })
+            
+        return Response({
+            'attempt_id': attempt_id,
+            'student_name': attempt.student.get_full_name() or attempt.student.email,
+            'exam_title': attempt.exam.title,
+            'total_violations': len(violation_data),
+            'violations': violation_data,
+            'video_clips': video_clips
+        })
+        
+    except ExamAttempt.DoesNotExist:
+        return Response({'error': 'Attempt not found'}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

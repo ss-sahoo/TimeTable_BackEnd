@@ -49,6 +49,7 @@ class Exam(models.Model):
     disable_copy_paste = models.BooleanField(default=True)
     disable_right_click = models.BooleanField(default=True)
     enable_webcam_proctoring = models.BooleanField(default=False)
+    proctoring_snapshot_interval = models.IntegerField(default=15, help_text="Interval in seconds between proctoring snapshots (min 15s)")
     allow_tab_switching = models.BooleanField(default=False)
     
     # Question Shuffling Settings
@@ -586,11 +587,20 @@ class ExamResult(models.Model):
 class ExamViolation(models.Model):
     """Track security violations during exam attempts"""
     VIOLATION_TYPES = [
-        ('tab_switch', 'Tab Switch'),
+        ('tab_switch', 'Tab Switched'),
+        ('tab_hidden', 'Tab Hidden'),
         ('window_blur', 'Window Lost Focus'),
         ('multiple_faces', 'Multiple Faces Detected'),
         ('no_face', 'No Face Detected'),
         ('looking_away', 'Looking Away'),
+        ('gaze_left', 'Looking Left'),
+        ('gaze_right', 'Looking Right'),
+        ('gaze_down', 'Looking Down'),
+        ('head_turned_left', 'Head Turned Left'),
+        ('head_turned_right', 'Head Turned Right'),
+        ('head_looking_up', 'Head Looking Up'),
+        ('head_looking_down', 'Head Looking Down'),
+        ('head_tilted', 'Head Tilted'),
         ('mobile_detected', 'Mobile Phone Detected'),
         ('copy_paste', 'Copy/Paste Attempt'),
         ('fullscreen_exit', 'Exited Fullscreen'),

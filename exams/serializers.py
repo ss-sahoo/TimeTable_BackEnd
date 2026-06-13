@@ -57,7 +57,7 @@ class ExamSerializer(serializers.ModelSerializer):
             'status', 'start_date', 'end_date', 'duration_minutes', 'max_attempts',
             'allow_late_submission', 'late_submission_penalty', 'require_fullscreen',
             'disable_copy_paste', 'disable_right_click', 'enable_webcam_proctoring',
-            'allow_tab_switching',
+            'proctoring_snapshot_interval', 'allow_tab_switching',
             # Shuffle settings
             'shuffle_questions', 'shuffle_within_sections', 'shuffle_sections',
             'shuffle_subjects', 'shuffle_options', 'shuffle_seed_per_student',
@@ -236,7 +236,7 @@ class ExamCreateSerializer(serializers.ModelSerializer):
             'id', 'title', 'description', 'pattern_id', 'program_id', 'center_id', 'copy_from_exam_id', 'start_date', 'end_date',
             'max_attempts', 'allow_late_submission', 'late_submission_penalty',
             'require_fullscreen', 'disable_copy_paste', 'disable_right_click',
-            'enable_webcam_proctoring', 'allow_tab_switching',
+            'enable_webcam_proctoring', 'proctoring_snapshot_interval', 'allow_tab_switching',
             # Shuffle settings
             'shuffle_questions', 'shuffle_within_sections', 'shuffle_sections',
             'shuffle_subjects', 'shuffle_options', 'shuffle_seed_per_student',

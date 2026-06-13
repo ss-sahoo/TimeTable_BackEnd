@@ -115,6 +115,7 @@ urlpatterns = [
     
     # AI Proctoring
     path('attempts/<int:attempt_id>/analyze/', proctoring_views.analyze_exam_session, name='analyze-exam-session'),
+    path('attempts/<int:attempt_id>/proctoring-violations/', proctoring_views.get_unified_violations, name='get-unified-violations'),
     path('attempts/<int:attempt_id>/detect-violations/', proctoring_views.detect_real_time_violations, name='detect-real-time-violations'),
     path('exams/<int:exam_id>/proctoring-dashboard/', proctoring_views.get_proctoring_dashboard, name='proctoring-dashboard'),
     path('exams/<int:exam_id>/violations/', proctoring_views.get_violations, name='get-violations'),
