@@ -342,6 +342,9 @@ class ExamAttemptSerializer(serializers.ModelSerializer):
     exam = ExamSerializer(read_only=True)  # Include full exam object
     is_completed = serializers.ReadOnlyField()
     time_remaining = serializers.ReadOnlyField()
+    has_audio_activity = serializers.SerializerMethodField()
+    has_face_violation = serializers.SerializerMethodField()
+    has_tab_switch = serializers.SerializerMethodField()
 
     class Meta:
         model = ExamAttempt
@@ -350,9 +353,19 @@ class ExamAttemptSerializer(serializers.ModelSerializer):
             'status', 'started_at', 'submitted_at', 'time_spent', 'score', 'percentage',
             'rank', 'ip_address', 'violations_count', 'proctoring_enabled', 
             'max_violations_allowed', 'fullscreen_required', 'is_completed', 'time_remaining',
+            'has_audio_activity', 'has_face_violation', 'has_tab_switch',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'student', 'created_at', 'updated_at']
+
+    def get_has_audio_activity(self, obj):
+        return obj.violations.filter(violation_type__in=['audio_noise', 'audio_voice_detected']).exists()
+
+    def get_has_face_violation(self, obj):
+        return obj.violations.filter(violation_type__in=['no_face', 'multiple_faces']).exists()
+
+    def get_has_tab_switch(self, obj):
+        return obj.violations.filter(violation_type='tab_switch').exists()
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)

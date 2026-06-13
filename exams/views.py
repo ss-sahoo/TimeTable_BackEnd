@@ -661,6 +661,9 @@ def start_exam(request):
             ip_address=request.META.get('REMOTE_ADDR'),
             user_agent=request.META.get('HTTP_USER_AGENT', '')
         )
+        # Initialize proctoring immediately so snapshots can be stored
+        from .models import ExamProctoring
+        ExamProctoring.objects.create(attempt=attempt)
     
     return Response({
         'attempt': ExamAttemptSerializer(attempt).data,
@@ -881,9 +884,13 @@ def log_violation(request, attempt_id):
     if serializer.is_valid():
         violation = serializer.save()
         
-        # Update violation count
-        attempt.violations_count += 1
-        attempt.save()
+        # Update violation count (EXCLUDING environmental noise and low-severity types)
+        # We only count 'Hard' violations like multiple faces, or no face.
+        # Audio is logged for human review but DOES NOT increase the penalty count.
+        SOFT_VIOLATIONS = ['audio_noise', 'audio_voice_detected']
+        if violation.violation_type not in SOFT_VIOLATIONS:
+            attempt.violations_count += 1
+            attempt.save(update_fields=['violations_count'])
         
         # Log activity
         from accounts.utils import log_activity
@@ -1083,9 +1090,12 @@ def upload_snapshot(request, attempt_id):
                     }
                 )
                 
-                # Update violation count
-                attempt.violations_count += 1
-                attempt.save()
+                # Update violation count (EXCLUDING all audio activities)
+                # Audio requires human review to determine if it's cheating or just reading aloud.
+                SOFT_VIOLATIONS = ['audio_noise', 'audio_voice_detected']
+                if violation_data['type'] not in SOFT_VIOLATIONS:
+                    attempt.violations_count += 1
+                    attempt.save(update_fields=['violations_count'])
                 
         return Response({
             'snapshot_uploaded': True,
@@ -1218,21 +1228,17 @@ def get_proctoring_snapshots(request, attempt_id):
     if user.role not in ['student', 'STUDENT'] and attempt.exam.institute != user.institute:
         return Response({'error': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
     
+    # Get new snapshots from ProctoringSnapshot model (PRIMARY STORAGE)
+    snapshot_files = ProctoringSnapshot.objects.filter(attempt=attempt)
+    
+    # Get legacy snapshots from ExamProctoring JSONField (BACKUP STORAGE)
     try:
         proctoring = ExamProctoring.objects.get(attempt=attempt)
+        legacy_snapshots = proctoring.snapshots or []
     except ExamProctoring.DoesNotExist:
-        return Response({
-            'snapshots': [],
-            'total_count': 0,
-            'violation_snapshots': 0,
-            'metadata_only_snapshots': 0
-        }, status=status.HTTP_200_OK)
+        legacy_snapshots = []
     
-    # Get legacy snapshots from JSONField
-    legacy_snapshots = proctoring.snapshots or []
-    
-    # Get new snapshots from ProctoringSnapshot model
-    snapshot_files = ProctoringSnapshot.objects.filter(attempt=attempt)
+    # snapshot_files already defined above
     
     filter_violations_only = request.query_params.get('violations_only', 'false').lower() == 'true'
     
@@ -1405,7 +1411,9 @@ def get_exam_result(request, attempt_id):
     except ExamAttempt.DoesNotExist:
         return Response({'error': 'Exam attempt not found'}, status=status.HTTP_404_NOT_FOUND)
     
-    if attempt.status not in ['submitted', 'auto_submitted', 'disqualified']:
+    # Restriction: Students only see finished exams. Admins can see LIVE status.
+    is_admin = request.user.role not in ['student', 'STUDENT']
+    if not is_admin and attempt.status not in ['submitted', 'auto_submitted', 'disqualified']:
         return Response({'error': 'Exam not completed yet'}, status=status.HTTP_400_BAD_REQUEST)
     
     # Determine what results to show based on question types
