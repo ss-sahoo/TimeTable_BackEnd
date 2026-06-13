@@ -999,25 +999,34 @@ def upload_snapshot(request, attempt_id):
         except Exception as e:
             return Response({'error': f'Decoding failed: {str(e)}'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 3. Analyze
-        analysis = {'success': False, 'message': 'Analysis failed'}
-        try:
-            from .utils_proctoring import proctoring_analyzer
-            analysis = proctoring_analyzer.analyze_snapshot(image_data)
-        except Exception as e:
-            analysis['error'] = str(e)
-
-        # 4. Save Snapshot
-        has_violations = analysis.get('success', False) and len(analysis.get('violations', [])) > 0
+        # 3. Create Snapshot Object FIRST (Prioritize storage)
         snapshot_obj = ProctoringSnapshot.objects.create(
             attempt=attempt,
             image=image_content,
             timestamp=timestamp_str,
             metadata=metadata,
-            analysis=analysis,
-            has_violations=has_violations,
-            stored_reason='violation_detected' if has_violations else 'monitoring'
+            analysis={'status': 'pending', 'message': 'Awaiting analysis'},
+            has_violations=False,
+            stored_reason='monitoring'
         )
+
+        # 4. Perform Analysis (If it fails, we still have the snapshot saved)
+        analysis = {'success': False, 'message': 'Analysis failed'}
+        has_violations = False
+        try:
+            from .utils_proctoring import proctoring_analyzer
+            analysis = proctoring_analyzer.analyze_snapshot(image_data)
+            
+            if analysis.get('success'):
+                has_violations = len(analysis.get('violations', [])) > 0
+                snapshot_obj.analysis = analysis
+                snapshot_obj.has_violations = has_violations
+                snapshot_obj.stored_reason = 'violation_detected' if has_violations else 'monitoring'
+                snapshot_obj.save(update_fields=['analysis', 'has_violations', 'stored_reason'])
+        except Exception as e:
+            analysis['error'] = str(e)
+            snapshot_obj.analysis = analysis
+            snapshot_obj.save(update_fields=['analysis'])
 
         # 5. Log Violations & Update Counter
         if has_violations:
@@ -1036,7 +1045,12 @@ def upload_snapshot(request, attempt_id):
         # 6. Legacy Backup
         proctoring, _ = ExamProctoring.objects.get_or_create(attempt=attempt)
         if hasattr(proctoring, 'snapshots'):
-            snap_info = {'id': snapshot_obj.id, 'timestamp': timestamp_str, 'has_violations': has_violations}
+            snap_info = {
+                'id': snapshot_obj.id, 
+                'timestamp': timestamp_str, 
+                'has_violations': has_violations,
+                'source': 'file_storage'
+            }
             if proctoring.snapshots is None: proctoring.snapshots = []
             proctoring.snapshots.append(snap_info)
             proctoring.save()
@@ -1044,7 +1058,8 @@ def upload_snapshot(request, attempt_id):
         return Response({
             'status': 'success',
             'id': snapshot_obj.id,
-            'violations_count': attempt.violations_count
+            'violations_count': attempt.violations_count,
+            'analysis_completed': analysis.get('success', False)
         }, status=status.HTTP_201_CREATED)
 
     except ExamAttempt.DoesNotExist:
