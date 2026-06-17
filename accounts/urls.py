@@ -19,13 +19,14 @@ from .device_session_views import (
     active_sessions_view,
     delete_session_view,
 )
-from .google_auth_views import google_login
+from .google_auth_views import google_login, google_onboarding_create_institute
 
 urlpatterns = [
     # Authentication (generic exam auth)
     path('register/', views.user_registration_view, name='user-register'),
     path('login/', views.user_login_view, name='user-login'),
     path('google/login/', google_login, name='google-login'),
+    path('google/onboarding/create-institute/', google_onboarding_create_institute, name='google-onboarding-create'),
     path('logout/', views.user_logout_view, name='user-logout'),
     path('forgot-password/', forgot_password, name='forgot-password'),
     path('reset-password/', reset_password, name='reset-password'),
