@@ -106,8 +106,9 @@ def google_login(request):
     user = User.objects.filter(email__iexact=google_email).first()
 
     if user is None:
-        # Default role is student, but respect signup_role if provided
-        initial_role = signup_role if signup_role in dict(User.ROLE_CHOICES) else 'student'
+        # Default role for all new users is student, matching the normal registration flow.
+        # They will be promoted to super_admin if they choose to create an institute during onboarding.
+        initial_role = 'student'
         
         username = google_email.split('@')[0]
         base_username = username
@@ -126,7 +127,7 @@ def google_login(request):
         )
         user.set_unusable_password()
         user.save()
-        logger.info("Created new user via Google login: %s with role: %s", google_email, initial_role)
+        logger.info("Created new user via Google login: %s with initial role: student (onboarding required)", google_email)
     else:
         if not user.is_active:
             return Response(
