@@ -58,7 +58,7 @@ class BaseRoleLoginView(APIView):
     allowed_roles: Tuple[str, ...] = ()
 
     def post(self, request, *args, **kwargs):
-        identifier = request.data.get("username")  # username OR email
+        identifier = request.data.get("username") or request.data.get("email") or request.data.get("identifier")
         password = request.data.get("password")
         force_switch = request.data.get("force_switch", False)  # Allow forcing device switch
         
@@ -75,7 +75,7 @@ class BaseRoleLoginView(APIView):
 
         if not identifier or not password:
             return Response(
-                {"detail": "Both 'username' and 'password' are required."},
+                {"detail": "Both username/email and password are required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

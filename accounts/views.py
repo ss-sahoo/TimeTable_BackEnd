@@ -98,7 +98,7 @@ def user_login_view(request):
     from rest_framework_simplejwt.tokens import RefreshToken
     from .device_session_manager import DeviceSessionManager
     
-    identifier = request.data.get('email') or request.data.get('username')
+    identifier = request.data.get('email') or request.data.get('username') or request.data.get('identifier')
     password = request.data.get('password')
     
     # Get device information from request
