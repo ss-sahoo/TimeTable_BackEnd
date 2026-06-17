@@ -75,3 +75,6 @@ MAILGUN_DOMAIN = get_config('MAILGUN_DOMAIN', default='sandbox5cb8f0e439cc4e82a4
 
 # Redis Configuration
 REDIS_PASSWORD = get_config('REDIS_PASSWORD', default='')
+
+# Google Auth Configuration
+GOOGLE_CLIENT_ID = get_config('GOOGLE_CLIENT_ID', default='')

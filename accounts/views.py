@@ -78,6 +78,7 @@ def user_registration_view(request):
         'user': UserSerializer(user).data,
         'access': tokens['access'],
         'refresh': tokens['refresh'],
+        'onboarding_required': user.institute is None,
         'message': 'User registered successfully'
     }, status=status.HTTP_201_CREATED)
 
