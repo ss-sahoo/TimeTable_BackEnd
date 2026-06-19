@@ -20,8 +20,14 @@ from .device_session_views import (
     delete_session_view,
 )
 from .google_auth_views import google_login, google_onboarding_create_institute
+from .platform_owner_views import PlatformInstituteListView, create_institute_with_admin, PlatformUserListView
 
 urlpatterns = [
+    # Platform Owner
+    path('platform/institutes/', PlatformInstituteListView.as_view(), name='platform-institutes-list'),
+    path('platform/institutes/create-with-admin/', create_institute_with_admin, name='platform-institute-create'),
+    path('platform/users/', PlatformUserListView.as_view(), name='platform-users-list'),
+
     # Authentication (generic exam auth)
     path('register/', views.user_registration_view, name='user-register'),
     path('login/', views.user_login_view, name='user-login'),

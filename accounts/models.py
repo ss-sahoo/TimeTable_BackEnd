@@ -96,6 +96,7 @@ class User(AbstractUser):
     # ===========
     # ROLE DEFINITIONS - All lowercase for consistency
     # ===========
+    ROLE_PLATFORM_OWNER = 'platform_owner'
     ROLE_SUPER_ADMIN = 'super_admin'
     ROLE_INSTITUTE_ADMIN = 'institute_admin'
     ROLE_EXAM_ADMIN = 'exam_admin'
@@ -107,6 +108,7 @@ class User(AbstractUser):
     
     # Role choices - all lowercase
     ROLE_CHOICES = [
+        ('platform_owner', 'Platform Owner'),
         ('super_admin', 'Super Admin'),
         ('institute_admin', 'Institute Admin'),
         ('exam_admin', 'Exam Admin'),
@@ -234,6 +236,10 @@ class User(AbstractUser):
     # ===========
     # TIMETABLE SYSTEM METHODS
     # ===========
+    def is_platform_owner(self) -> bool:
+        """Check if user is platform owner with global access"""
+        return self.role == self.ROLE_PLATFORM_OWNER
+
     def is_super_admin(self) -> bool:
         """Check if user is super admin"""
         return self.role == self.ROLE_SUPER_ADMIN
