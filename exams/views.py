@@ -3358,6 +3358,9 @@ def public_exam_access(request):
     if not exam.is_public:
         return deny('This exam is not publicly accessible', 'exam_not_public')
 
+    if exam.status not in ['published', 'active']:
+        return deny('This exam is not currently available (in draft)', 'exam_not_published')
+
     if exam.is_public_link_expired():
         return deny('This exam link has expired.', 'link_expired')
 
