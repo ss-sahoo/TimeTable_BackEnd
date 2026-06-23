@@ -503,7 +503,7 @@ class AllExamAttemptsListView(generics.ListAPIView):
     """List all exam attempts across all exams (for admins) with filtering support"""
     serializer_class = ExamAttemptSerializer
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = None  # Disable pagination for this view
+    # pagination_class = None  # Disable pagination for this view
 
     def get_queryset(self):
         return filter_all_exam_attempts(self.request)
@@ -2891,9 +2891,21 @@ def exam_results_dashboard(request, exam_id):
     else:
         attempts = attempts.order_by('-submitted_at')
     
+    # Pagination
+    from rest_framework.pagination import PageNumberPagination
+    paginator = PageNumberPagination()
+    paginator.page_size = int(request.GET.get('page_size', 20))
+    
+    page = paginator.paginate_queryset(attempts, request)
+    
     # Format results
     results = []
-    for i, attempt in enumerate(attempts, 1):
+    # If the queryset is sliced, 'enumerate' start index should be correct
+    start_index = (paginator.page.number - 1) * paginator.page_size if paginator.page else 0
+
+    target_list = page if page is not None else attempts
+    
+    for i, attempt in enumerate(target_list, start_index + 1):
         results.append({
             's_no': i,
             'task_no': attempt.attempt_number,
@@ -2921,7 +2933,7 @@ def exam_results_dashboard(request, exam_id):
                 'questions': questions_count
             }
     
-    return Response({
+    response_data = {
         'exam': {
             'id': exam.id,
             'title': exam.title,
@@ -2930,14 +2942,19 @@ def exam_results_dashboard(request, exam_id):
         },
         'results': results,
         'subject_totals': subject_totals,
-        'total_count': len(results),
+        'total_count': attempts.count(),
         'filters': {
             'search': search,
             'sort_by': sort_by,
             'sort_order': sort_order,
             'status': status_filter
         }
-    })
+    }
+
+    if page is not None:
+        return paginator.get_paginated_response(response_data)
+    
+    return Response(response_data)
 
 
 @api_view(['GET'])
