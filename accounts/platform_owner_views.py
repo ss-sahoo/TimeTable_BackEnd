@@ -84,6 +84,13 @@ def create_institute_with_admin(request):
             institute.created_by = user
             institute.save()
             
+            # Auto-create 2 default exam patterns for this new institute
+            try:
+                from patterns.default_patterns import create_default_patterns_for_institute
+                create_default_patterns_for_institute(institute, user)
+            except Exception:
+                pass  # Don't block creation if pattern setup fails
+            
             return Response({
                 'message': 'Institute and Super Admin created successfully.',
                 'institute': PlatformInstituteSerializer(institute).data

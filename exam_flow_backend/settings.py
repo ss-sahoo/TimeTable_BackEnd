@@ -41,6 +41,7 @@ LOCAL_APPS = [
     'patterns',
     'timetable',  # Timetable management app (uses accounts models)
     'omr',  # OMR sheet generation and evaluation
+    'billing',  # Billing and finance module
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

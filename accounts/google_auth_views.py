@@ -336,6 +336,14 @@ def google_onboarding_create_institute(request):
             institute.created_by = user
             institute.save()
 
+            # Auto-create 2 default exam patterns for this new institute
+            try:
+                from patterns.default_patterns import create_default_patterns_for_institute
+                create_default_patterns_for_institute(institute, user)
+                logger.info("Default patterns created for new institute: %s", institute.name)
+            except Exception as pattern_err:
+                logger.warning("Could not create default patterns for %s: %s", institute.name, pattern_err)
+
         # 4. Generate tokens and return success
         refresh = RefreshToken.for_user(user)
         

@@ -60,6 +60,13 @@ class InstituteCreateSerializer(serializers.ModelSerializer):
         user.is_staff = True  # Give staff access
         user.save()
         
+        # Auto-create 2 default exam patterns for this new institute
+        try:
+            from patterns.default_patterns import create_default_patterns_for_institute
+            create_default_patterns_for_institute(institute, user)
+        except Exception:
+            pass  # Don't block registration if pattern creation fails
+        
         return institute
 
 
