@@ -54,6 +54,7 @@ class ExamPattern(models.Model):
         help_text="Default OMR configuration (candidate fields, etc.)"
     )
     is_active = models.BooleanField(default=True)
+    is_default = models.BooleanField(default=False, help_text="Designates if this is a system-default pattern")
     created_by = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name='created_patterns', db_constraint=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

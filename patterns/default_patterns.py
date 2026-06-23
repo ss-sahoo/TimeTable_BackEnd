@@ -140,6 +140,7 @@ def create_default_patterns_for_institute(institute, creator_user):
                     total_marks=pd["total_marks"],
                     pattern_type=pd["pattern_type"],
                     exam_mode=pd["exam_mode"],
+                    is_default=True,
                     created_by=creator_user,
                 )
                 for sec in pd["sections"]:

@@ -85,7 +85,7 @@ class ExamPatternSerializer(serializers.ModelSerializer):
         model = ExamPattern
         fields = [
             'id', 'name', 'description', 'institute', 'institute_name',
-            'total_questions', 'total_duration', 'total_marks', 'is_active',
+            'total_questions', 'total_duration', 'total_marks', 'is_active', 'is_default',
             'created_by', 'created_by_name', 'sections', 'exam_mode', 'omr_config',
             'created_at', 'updated_at'
         ]
