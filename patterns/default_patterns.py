@@ -8,12 +8,12 @@ from django.db import transaction
 
 
 DEFAULT_PATTERNS = [
-    # ─── Pattern 1: JEE-style Full Test ──────────────────────────────────
+    # ─── Pattern 1: NTA JEE Mains Official Pattern ─────────────────────────
     {
-        "name": "JEE-Style Full Test (90 Questions)",
+        "name": "NTA JEE Mains Official Pattern (90 Qs)",
         "description": (
-            "A standard JEE Mains–style pattern with 90 questions across "
-            "Physics, Chemistry, and Mathematics (+4 / -1 marking)."
+            "The official National Testing Agency (NTA) JEE Mains pattern. "
+            "Includes 90 questions across Physics, Chemistry, and Mathematics (+4 / -1 marking)."
         ),
         "total_questions": 90,
         "total_duration": 180,
@@ -56,7 +56,33 @@ DEFAULT_PATTERNS = [
             },
         ],
     },
-    # ─── Pattern 2: Quick Practice Test ──────────────────────────────────
+    # ─── Pattern 2: UPSC Civil Services Prelims (Paper I) ──────────────────
+    {
+        "name": "UPSC CSE Prelims - General Studies (Paper I)",
+        "description": (
+            "UPSC Civil Services Preliminary Examination - Paper I (General Studies). "
+            "100 questions, 200 marks, 2 hours, (+2 / -0.66 marking)."
+        ),
+        "total_questions": 100,
+        "total_duration": 120,
+        "total_marks": 200,
+        "pattern_type": "fixed",
+        "exam_mode": "online",
+        "sections": [
+            {
+                "name": "General Studies",
+                "subject": "General Studies",
+                "question_type": "single_mcq",
+                "start_question": 1,
+                "end_question": 100,
+                "marks_per_question": 2,
+                "negative_marking": 0.66,
+                "min_questions_to_attempt": 100,
+                "order": 1,
+            },
+        ],
+    },
+    # ─── Pattern 3: Quick Practice Test ──────────────────────────────────
     {
         "name": "Quick Practice Test (30 Questions)",
         "description": (
