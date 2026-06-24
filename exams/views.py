@@ -664,6 +664,33 @@ def start_exam(request):
         # Initialize proctoring immediately so snapshots can be stored
         from .models import ExamProctoring
         ExamProctoring.objects.create(attempt=attempt)
+        
+        # Record usage
+        from billing.utils import record_usage
+        
+        # Decide metric type based on attempt number
+        m_type = 'exam_attempt' if attempt.attempt_number == 1 else 're_exam_attempt'
+        record_usage(exam.institute, m_type, reference_id=attempt.id)
+        
+        if exam.enable_webcam_proctoring:
+            record_usage(exam.institute, 'proctoring_session', reference_id=attempt.id)
+
+        # Record active student usage (once per student per month)
+        from billing.models import UsageMetric
+        from django.utils import timezone
+        now = timezone.now()
+        this_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        
+        has_active_metric = UsageMetric.objects.filter(
+            institute=exam.institute,
+            metric_type='active_student',
+            processed=False,
+            reference_id=str(user.id),
+            created_at__gte=this_month_start
+        ).exists()
+        
+        if not has_active_metric:
+            record_usage(exam.institute, 'active_student', reference_id=user.id)
     
     return Response({
         'attempt': ExamAttemptSerializer(attempt).data,

@@ -147,6 +147,12 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         if center:
             user.center = center
             user.save()
+
+        # Record usage if it's a student
+        if user.role == 'student' and user.institute:
+            from billing.utils import record_usage
+            record_usage(user.institute, 'student_onboarding', reference_id=user.id)
+
         return user
 
 
@@ -211,6 +217,11 @@ class UserCreationSerializer(serializers.ModelSerializer):
         # Store raw password on instance for the response
         user._raw_password = password
         
+        # Record usage if it's a student
+        if user.role == 'student' and user.institute:
+            from billing.utils import record_usage
+            record_usage(user.institute, 'student_onboarding', reference_id=user.id)
+
         return user
 
     def to_representation(self, instance):

@@ -29,6 +29,7 @@ urlpatterns = [
 
     # AI Evaluation for Subjective Exams
     path('api/ai-evaluation/', include('exams.ai_evaluation_urls')),
+    path('api/billing/', include('billing.urls')),
 
     # OpenAPI schema + interactive docs (drf-spectacular). Additive, read-only.
     path('api/schema/', SpectacularAPIView.as_view(), name='schema'),

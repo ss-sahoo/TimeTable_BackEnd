@@ -86,6 +86,34 @@ class Transaction(TimeStampedModel):
     def __str__(self):
         return f"{self.transaction_type} - {self.amount} - {self.status}"
 
+class GlobalPricing(TimeStampedModel):
+    """
+    Global default pricing configuration applied to all institutes.
+    Implementing the singleton pattern.
+    """
+    # Per-Student charges
+    per_student_onboarding_fee = models.DecimalField(max_digits=10, decimal_places=2, default=100.00)
+    per_active_student_monthly_fee = models.DecimalField(max_digits=10, decimal_places=2, default=20.00)
+    
+    # Exam charges
+    per_exam_session_fee = models.DecimalField(max_digits=10, decimal_places=2, default=10.00)
+    per_re_exam_fee = models.DecimalField(max_digits=10, decimal_places=2, default=50.00)
+    
+    # Revenue Sharing
+    platform_commission_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=10.00)
+    
+    # Add-on services
+    per_proctoring_session_fee = models.DecimalField(max_digits=10, decimal_places=2, default=5.00)
+    storage_per_gb_fee = models.DecimalField(max_digits=10, decimal_places=2, default=2.00)
+
+    def __str__(self):
+        return "Global Platform Pricing"
+
+    @classmethod
+    def get_instance(cls):
+        instance, created = cls.objects.get_or_create(id=uuid.UUID('00000000-0000-0000-0000-000000000001'))
+        return instance
+
 class InstitutePricing(TimeStampedModel):
     """
     Specific pricing configuration for a particular institute.
