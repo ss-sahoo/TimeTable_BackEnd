@@ -581,7 +581,7 @@ class InstituteUpdateView(generics.UpdateAPIView):
     
     def get_queryset(self):
         user = self.request.user
-        if user.role in ['super_admin', 'SUPER_ADMIN']:
+        if user.role in ['super_admin', 'SUPER_ADMIN', 'platform_owner']:
             return Institute.objects.all()
         return Institute.objects.filter(users=user, users__role__in=['institute_admin', 'super_admin'])
 

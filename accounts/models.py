@@ -33,6 +33,7 @@ class Institute(models.Model):
     
     # Basic fields from exam system
     name = models.CharField(max_length=255, unique=True)
+    subdomain = models.CharField(max_length=100, unique=True, blank=True, null=True, help_text="Subdomain slug for this institute (e.g., 'iitmadras' for iitmadras.exams.dashoapp.com)")
     domain = models.CharField(max_length=100, unique=True, blank=True, null=True, help_text="Optional email domain (e.g., 'university.edu')")
     description = models.TextField(blank=True, null=True, help_text="Brief description of the institute")
     address = models.TextField(blank=True, null=True)

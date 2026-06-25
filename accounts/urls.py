@@ -20,11 +20,12 @@ from .device_session_views import (
     delete_session_view,
 )
 from .google_auth_views import google_login, google_onboarding_create_institute
-from .platform_owner_views import PlatformInstituteListView, create_institute_with_admin, PlatformUserListView
+from .platform_owner_views import PlatformInstituteListView, PlatformInstituteDetailView, create_institute_with_admin, PlatformUserListView
 
 urlpatterns = [
     # Platform Owner
     path('platform/institutes/', PlatformInstituteListView.as_view(), name='platform-institutes-list'),
+    path('platform/institutes/<int:pk>/', PlatformInstituteDetailView.as_view(), name='platform-institute-detail'),
     path('platform/institutes/create-with-admin/', create_institute_with_admin, name='platform-institute-create'),
     path('platform/users/', PlatformUserListView.as_view(), name='platform-users-list'),
 

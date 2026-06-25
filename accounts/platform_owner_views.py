@@ -20,6 +20,14 @@ class PlatformInstituteListView(generics.ListAPIView):
     serializer_class = PlatformInstituteSerializer
     queryset = Institute.objects.all().order_by('-created_at')
 
+class PlatformInstituteDetailView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    Retrieve, update or delete an institute for the platform owner.
+    """
+    permission_classes = [IsPlatformOwner]
+    serializer_class = PlatformInstituteSerializer
+    queryset = Institute.objects.all()
+
 class PlatformUserListView(generics.ListAPIView):
     """
     List all users across all institutes for the platform owner.
@@ -64,6 +72,7 @@ def create_institute_with_admin(request):
             # 2. Create Institute
             institute = Institute.objects.create(
                 name=data['name'],
+                subdomain=data.get('subdomain') or None,
                 domain=data.get('domain') or None,
                 contact_email=data['contact_email'],
                 is_verified=True

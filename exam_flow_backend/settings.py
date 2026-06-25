@@ -330,12 +330,15 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://128.199.17.132',
-    'http://exams.dashoapp.com',
-    'http://exam.dashoapp.com',
     'https://exams.dashoapp.com',
-    'https://exam.dashoapp.com',
-    'http://timetable.dashoapp.com',
+    'https://*.exams.dashoapp.com',
     'https://timetable.dashoapp.com',
+]
+
+# CORS settings
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.exams\.dashoapp\.com$",
+    r"^https://exams\.dashoapp\.com$",
 ]
 
 # Disable CSRF for API endpoints (since we're using JWT)

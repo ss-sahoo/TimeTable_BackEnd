@@ -15,7 +15,7 @@ class InstituteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Institute
         fields = [
-            'id', 'name', 'domain', 'description', 'address', 'contact_email', 
+            'id', 'name', 'subdomain', 'domain', 'description', 'address', 'contact_email', 
             'contact_phone', 'website', 'logo', 'is_active', 'is_verified',
             'created_by', 'created_by_name', 'user_count', 'active_user_count',
             'created_at', 'updated_at'

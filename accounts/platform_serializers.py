@@ -13,7 +13,7 @@ class PlatformInstituteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Institute
         fields = [
-            'id', 'name', 'domain', 'description', 'address', 
+            'id', 'name', 'subdomain', 'domain', 'description', 'address', 
             'contact_email', 'contact_phone', 'website', 'is_verified',
             'is_active', 'created_at', 'super_admin', 'user_count', 
             'active_user_count', 'center_count', 'db_name'
@@ -37,6 +37,7 @@ class CreateInstituteWithAdminSerializer(serializers.Serializer):
     """
     # Institute details
     name = serializers.CharField(max_length=255)
+    subdomain = serializers.SlugField(max_length=100, required=False, allow_blank=True, help_text="URL-safe slug, e.g. 'iitmadras'")
     domain = serializers.CharField(max_length=100, required=False, allow_blank=True)
     contact_email = serializers.EmailField()
     
