@@ -136,6 +136,24 @@ def user_login_view(request):
             'detail': 'Invalid credentials.'
         }, status=status.HTTP_401_UNAUTHORIZED)
     
+    # --- SUBDOMAIN ACCESS RESTRICTION ---
+    # If the request is coming from a subdomain, ensure the user belongs to this institute
+    request_subdomain = getattr(request, 'subdomain', None)
+    if request_subdomain:
+        # User must either have this as their primary institute
+        # OR have a membership in this institute
+        is_member = False
+        if user.institute and user.institute.subdomain == request_subdomain:
+            is_member = True
+        elif user.memberships.filter(institute__subdomain=request_subdomain, is_active=True).exists():
+            is_member = True
+        
+        if not is_member:
+            return Response({
+                'detail': f'Your account does not have access to the {request_subdomain} portal.'
+            }, status=status.HTTP_403_FORBIDDEN)
+    # ------------------------------------
+    
     # Check if user is active
     if not user.is_active:
         return Response({
