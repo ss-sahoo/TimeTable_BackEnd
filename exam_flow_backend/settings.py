@@ -15,12 +15,7 @@ SECRET_KEY = SECRET_KEY
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = DEBUG
 
-ALLOWED_HOSTS = ALLOWED_HOSTS
-# Ensure wildcard subdomains are always allowed for the main domains
-if 'exams.dashoapp.com' in ALLOWED_HOSTS and '.exams.dashoapp.com' not in ALLOWED_HOSTS:
-    ALLOWED_HOSTS.append('.exams.dashoapp.com')
-if 'timetable.dashoapp.com' in ALLOWED_HOSTS and '.timetable.dashoapp.com' not in ALLOWED_HOSTS:
-    ALLOWED_HOSTS.append('.timetable.dashoapp.com')
+ALLOWED_HOSTS = ['*']
 
 # Application definition
 DJANGO_APPS = [

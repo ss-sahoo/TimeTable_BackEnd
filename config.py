@@ -34,7 +34,7 @@ DB_PORT = get_config('DB_PORT', '5432')
 DATABASE_URL = get_config('DATABASE_URL', 
     default=f'postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}')
 
-ALLOWED_HOSTS_RAW = get_config('ALLOWED_HOSTS', default='localhost,127.0.0.1,128.199.17.132,exams.dashoapp.com,exam.dashoapp.com,timetable.dashoapp.com,dashoapp.com,.exams.dashoapp.com').split(',')
+ALLOWED_HOSTS_RAW = [h.strip() for h in get_config('ALLOWED_HOSTS', default='localhost,127.0.0.1,128.199.17.132,exams.dashoapp.com,exam.dashoapp.com,timetable.dashoapp.com,dashoapp.com,.exams.dashoapp.com').split(',')]
 ALLOWED_HOSTS = ALLOWED_HOSTS_RAW
 
 CORS_ALLOWED_ORIGINS = get_config('CORS_ALLOWED_ORIGINS', 
