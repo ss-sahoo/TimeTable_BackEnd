@@ -864,10 +864,13 @@ def get_institute_by_subdomain(request, subdomain):
     Publicly accessible to display logo and name on the login page.
     """
     try:
-        institute = Institute.objects.using('default').get(subdomain=subdomain, is_active=True)
+        institute = Institute.objects.using('default').get(subdomain__iexact=subdomain, is_active=True)
     except Institute.DoesNotExist:
+        all_institutes = list(Institute.objects.using('default').values('id', 'name', 'subdomain', 'is_active'))
         return Response({
-            'detail': 'Institute not found.'
+            'detail': 'Institute not found.',
+            'requested_subdomain': subdomain,
+            'debug_all_institutes': all_institutes
         }, status=status.HTTP_404_NOT_FOUND)
     
     return Response({
@@ -878,4 +881,5 @@ def get_institute_by_subdomain(request, subdomain):
         'website': institute.website,
         'description': institute.description
     })
+
 
