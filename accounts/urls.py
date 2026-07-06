@@ -94,4 +94,8 @@ urlpatterns = [
     
     # Activity Logs
     path('activity-logs/', views.ActivityLogListView.as_view(), name='activity-log-list'),
+    
+    # Public Subdomain Institute detail
+    path('institutes/by-subdomain/<str:subdomain>/', views.get_institute_by_subdomain, name='institute-by-subdomain'),
 ]
+

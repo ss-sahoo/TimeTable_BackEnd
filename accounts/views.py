@@ -854,3 +854,28 @@ def admin_reset_password(request, pk):
     return Response({
         'message': 'Password reset successfully.'
     }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def get_institute_by_subdomain(request, subdomain):
+    """
+    Retrieve details of an institute by its subdomain.
+    Publicly accessible to display logo and name on the login page.
+    """
+    try:
+        institute = Institute.objects.using('default').get(subdomain=subdomain, is_active=True)
+    except Institute.DoesNotExist:
+        return Response({
+            'detail': 'Institute not found.'
+        }, status=status.HTTP_404_NOT_FOUND)
+    
+    return Response({
+        'id': institute.id,
+        'name': institute.name,
+        'logo': request.build_absolute_uri(institute.logo.url) if institute.logo else None,
+        'subdomain': institute.subdomain,
+        'website': institute.website,
+        'description': institute.description
+    })
+
