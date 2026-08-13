@@ -106,8 +106,8 @@ if DATABASE_URL and DATABASE_URL.startswith('postgresql'):
         DATABASES = {
             'default': {
                 'ENGINE': 'django.db.backends.postgresql',
-                'NAME': os.getenv('DB_NAME', 'exam_flow_db'),
-                'USER': os.getenv('DB_USER', 'exam_flow_user'),
+                'NAME': os.getenv('DB_NAME', 'timetable_db'),
+                'USER': os.getenv('DB_USER', 'timetable_user'),
                 'PASSWORD': os.getenv('DB_PASSWORD', ''),
                 'HOST': os.getenv('DB_HOST', 'localhost'),
                 'PORT': os.getenv('DB_PORT', '5432'),
@@ -118,8 +118,8 @@ else:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.getenv('DB_NAME', 'exam_flow_db'),
-            'USER': os.getenv('DB_USER', 'exam_flow_user'),
+            'NAME': os.getenv('DB_NAME', 'timetable_db'),
+            'USER': os.getenv('DB_USER', 'timetable_user'),
             'PASSWORD': os.getenv('DB_PASSWORD', ''),
             'HOST': os.getenv('DB_HOST', 'localhost'),
             'PORT': os.getenv('DB_PORT', '5432'),

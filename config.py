@@ -24,8 +24,8 @@ SECRET_KEY = get_config('SECRET_KEY', default='django-insecure-change-this-in-pr
 DEBUG = get_config('DEBUG', default='False', cast=bool)
 
 # Build DATABASE_URL from components or use full URL
-DB_NAME = get_config('DB_NAME', 'exam_flow_db')
-DB_USER = get_config('DB_USER', 'exam_flow_user')
+DB_NAME = get_config('DB_NAME', 'timetable_db')
+DB_USER = get_config('DB_USER', 'timetable_user')
 DB_PASSWORD = get_config('DB_PASSWORD', '')
 DB_HOST = get_config('DB_HOST', 'localhost')
 DB_PORT = get_config('DB_PORT', '5432')
