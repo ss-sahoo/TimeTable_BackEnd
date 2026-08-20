@@ -1688,6 +1688,8 @@ def list_people(request):
             'is_verified': u.is_verified,
             'phone': u.phone or u.phone_number,
             'teacher_code': u.teacher_code,
+            'teacher_subjects': getattr(u, 'teacher_subjects', '') or '',
+            'teacher_employee_id': getattr(u, 'teacher_employee_id', '') or '',
             'institute_id': u.institute_id,
             'institute_name': u.institute.name if u.institute_id and u.institute else None,
             'center_id': str(u.center_id) if u.center_id else None,
