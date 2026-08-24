@@ -3712,6 +3712,7 @@ def run_timetable_optimization(request, timetable_id: str):
             if run_async:
                 # Run with Celery asynchronously
                 from .tasks import run_genetic_algorithm_task
+                from accounts.utils import get_current_db
                 
                 task = run_genetic_algorithm_task.delay(
                     timetable_id=str(timetable_id),
@@ -3734,7 +3735,8 @@ def run_timetable_optimization(request, timetable_id: str):
                     consu_sub_rep_penalty=consu_sub_rep_penalty,
                     consu_sub_rep_penalty_fector=consu_sub_rep_penalty_fector,
                     sub_variation_per_day_reward_fector=sub_variation_per_day_reward_fector,
-                    sub_spread_over_week_reward_fector=sub_spread_over_week_reward_fector
+                    sub_spread_over_week_reward_fector=sub_spread_over_week_reward_fector,
+                    tenant_db=get_current_db()
                 )
                 
                 return Response(

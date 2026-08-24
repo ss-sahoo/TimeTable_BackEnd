@@ -36,12 +36,27 @@ def run_genetic_algorithm_task(
     consu_sub_rep_penalty: int = 40,
     consu_sub_rep_penalty_fector: int = 3,
     sub_variation_per_day_reward_fector: float = 1.2,
-    sub_spread_over_week_reward_fector: float = 2.0
+    sub_spread_over_week_reward_fector: float = 2.0,
+    tenant_db: str = 'default'
 ):
     """
     Celery task to run genetic algorithm for timetable optimization.
     This runs asynchronously since it can take a long time.
     """
+    from accounts.utils import set_current_db, clear_current_db
+    from django.conf import settings
+    
+    if tenant_db and tenant_db != 'default':
+        if tenant_db not in settings.DATABASES:
+            from accounts.models import Institute
+            from accounts.database_utils import register_institute_database
+            try:
+                institute = Institute.objects.using('default').get(db_name=tenant_db)
+                register_institute_database(institute)
+            except Institute.DoesNotExist:
+                logger.error(f"Tenant database {tenant_db} not found in master database.")
+        set_current_db(tenant_db)
+
     from .genetic_algorithm import (
         generate_random_timetable,
         fitness_score,
@@ -324,6 +339,10 @@ def run_genetic_algorithm_task(
             'traceback': traceback.format_exc(),
             'elapsed_seconds': round(total_time, 1)
         }
+    finally:
+        from accounts.utils import clear_current_db
+        if tenant_db and tenant_db != 'default':
+            clear_current_db()
 
 
 def save_timetable_to_db(timetable_id, generated_timetable, teachers_dict, batches_dict_algo, clear_existing):
@@ -334,11 +353,7 @@ def save_timetable_to_db(timetable_id, generated_timetable, teachers_dict, batch
     
     timetable = Timetable.objects.get(id=timetable_id)
     
-    # Day mapping for weekly timetables
-    DAY_MAP_SHORT = {
-        'monday': 'mon', 'tuesday': 'tue', 'wednesday': 'wed',
-        'thursday': 'thu', 'friday': 'fri', 'saturday': 'sat', 'sunday': 'sun'
-    }
+    from .optimization import DAY_MAP_SHORT
     
     # Create mapping: slot_code -> DaySlot object
     slot_code_to_dayslot = {}
